@@ -316,6 +316,7 @@ func (f *TestFramework) Start() error {
 	if f.config.EnableLegacy {
 		cfg.Dealmaking.EnableLegacyStorageDeals = true
 	}
+	cfg.IndexProvider.Enable = false
 
 	err = lr.SetConfig(func(raw interface{}) {
 		rcfg := raw.(*config.Boost)
