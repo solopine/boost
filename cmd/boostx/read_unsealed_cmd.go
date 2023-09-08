@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"time"
@@ -13,8 +14,10 @@ import (
 	"github.com/filecoin-project/lotus/storage/sealer/fr32"
 	"github.com/filecoin-project/lotus/storage/sealer/partialfile"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
+	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-cidutil/cidenc"
 	carv2 "github.com/ipld/go-car/v2"
+	"github.com/ipld/go-car/v2/blockstore"
 	"github.com/multiformats/go-multibase"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
@@ -42,30 +45,31 @@ var readUnsealedCmd = &cli.Command{
 		//maxPieceSize := abi.PaddedPieceSize(ss32GiB)
 		maxPieceSize := abi.PaddedPieceSize(ss64GiB)
 
-		pf, err := partialfile.OpenPartialFile(maxPieceSize, path)
-		if err != nil {
-			return err
-		}
-
 		deals := []struct {
 			offset storiface.PaddedByteIndex
 			size   abi.PaddedPieceSize
 		}{
-			//{
-			//storiface.PaddedByteIndex(0),
-			//abi.PaddedPieceSize(8388608),
-			//},
-			{
+			{ // first deal
 				storiface.PaddedByteIndex(0),
-				abi.PaddedPieceSize(34359738368),
+				abi.PaddedPieceSize(32 << 30),
+			},
+			{ // second deal
+				storiface.PaddedByteIndex(abi.PaddedPieceSize(32 << 30).Unpadded()),
+				abi.PaddedPieceSize(32 << 30),
 			},
 		}
 
-		for _, d := range deals {
+		for dealIndex, d := range deals {
 			err := func() error {
 				defer func(now time.Time) {
-					fmt.Println("commp calc took", time.Since(now))
+					fmt.Println("processing deal/piece took", time.Since(now))
 				}(time.Now())
+
+				pf, err := partialfile.OpenPartialFile(maxPieceSize, path)
+				if err != nil {
+					return err
+				}
+				defer pf.Close()
 
 				f, err := pf.Reader(d.offset, d.size)
 				if err != nil {
@@ -79,7 +83,6 @@ var readUnsealedCmd = &cli.Command{
 
 				w := &writer.Writer{}
 				if _, err := io.CopyN(w, upr, int64(d.size.Unpadded())); err != nil {
-					_ = pf.Close()
 					return xerrors.Errorf("reading unsealed file: %w", err)
 				}
 
@@ -120,6 +123,25 @@ var readUnsealedCmd = &cli.Command{
 				}
 
 				spew.Dump(rr.Inspect(false))
+
+				if dealIndex == 1 { // baga6ea4seaqdztbv3g4gtc3evmtsdimt3rkmpx3bo5rkgt3ph7di3kt6tnhw2la
+					bs, err := blockstore.NewReadOnly(readerAt, nil, opts...)
+					if err != nil {
+						return err
+					}
+
+					blkCid, err := cid.Parse("bafybeiecyv2b5qd7rzm7zjuaczbzi6znvrxv3vqnwz43bud7yozlnuhx4m")
+					if err != nil {
+						return err
+					}
+
+					blk, err := bs.Get(context.Background(), blkCid)
+					if err != nil {
+						return err
+					}
+
+					spew.Dump(blk)
+				}
 
 				return nil
 			}()
