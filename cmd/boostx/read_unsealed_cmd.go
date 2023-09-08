@@ -26,8 +26,8 @@ var readUnsealedCmd = &cli.Command{
 	Before: before,
 	Flags:  []cli.Flag{},
 	Action: func(cctx *cli.Context) error {
-		path := "/Users/nonsense/s-t01000-1" // unsealed file
-		//path := "/Users/nonsense/weirdsector/16581-unsealed" // unsealed file
+		//path := "/Users/nonsense/s-t01000-1" // unsealed file
+		path := "/Users/nonsense/weirdsector/16581-unsealed" // unsealed file
 
 		ss8MiB := 8 << 20 // 8MiB sector
 		_ = ss8MiB
@@ -38,9 +38,9 @@ var readUnsealedCmd = &cli.Command{
 		ss64GiB := 64 << 30 // 64GiB sector
 		_ = ss64GiB
 
-		maxPieceSize := abi.PaddedPieceSize(ss8MiB)
+		//maxPieceSize := abi.PaddedPieceSize(ss8MiB)
 		//maxPieceSize := abi.PaddedPieceSize(ss32GiB)
-		//maxPieceSize := abi.PaddedPieceSize(ss64GiB)
+		maxPieceSize := abi.PaddedPieceSize(ss64GiB)
 
 		pf, err := partialfile.OpenPartialFile(maxPieceSize, path)
 		if err != nil {
@@ -51,14 +51,14 @@ var readUnsealedCmd = &cli.Command{
 			offset storiface.PaddedByteIndex
 			size   abi.PaddedPieceSize
 		}{
-			{
-				storiface.PaddedByteIndex(0),
-				abi.PaddedPieceSize(8388608),
-			},
 			//{
 			//storiface.PaddedByteIndex(0),
-			//abi.PaddedPieceSize(34359738368),
+			//abi.PaddedPieceSize(8388608),
 			//},
+			{
+				storiface.PaddedByteIndex(0),
+				abi.PaddedPieceSize(34359738368),
+			},
 		}
 
 		for _, d := range deals {
@@ -100,13 +100,13 @@ var readUnsealedCmd = &cli.Command{
 					return err
 				}
 
-				upr, err = fr32.NewUnpadReader(f, d.size)
+				upr, err = fr32.NewUnpadReaderBuf(f, d.size, make([]byte, 65<<30))
 				if err != nil {
 					return xerrors.Errorf("creating unpadded reader: %w", err)
 				}
 
-				buff := bytes.NewBuffer([]byte{})
-				_, err = io.Copy(buff, upr)
+				var buff bytes.Buffer
+				_, err = io.Copy(&buff, upr)
 				if err != nil {
 					return err
 				}
