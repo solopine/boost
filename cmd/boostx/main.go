@@ -48,6 +48,7 @@ func main() {
 			statsCmd,
 			sectorCmd,
 			minerCmd,
+			readUnsealedCmd,
 		},
 	}
 	app.Setup()
