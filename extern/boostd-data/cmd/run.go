@@ -29,6 +29,7 @@ var runCmd = &cli.Command{
 		leveldbCmd,
 		yugabyteCmd,
 		yugabyteMigrateCmd,
+		yugabyteAddIndexCmd,
 	},
 }
 
