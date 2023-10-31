@@ -4,15 +4,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"time"
 
+	"github.com/filecoin-project/boost/extern/boostd-data/model"
 	"github.com/filecoin-project/boost/extern/boostd-data/shared/cliutil"
 	"github.com/filecoin-project/boost/extern/boostd-data/shared/tracing"
 	"github.com/filecoin-project/boost/extern/boostd-data/svc"
 	"github.com/filecoin-project/boost/extern/boostd-data/yugabyte"
 	"github.com/filecoin-project/boost/extern/boostd-data/yugabyte/migrations"
 	"github.com/filecoin-project/go-address"
+	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
+	carv2 "github.com/ipld/go-car/v2"
 	"github.com/mitchellh/go-homedir"
 	"github.com/urfave/cli/v2"
 )
@@ -231,5 +237,98 @@ var yugabyteMigrateCmd = &cli.Command{
 			return fmt.Errorf(msg)
 		}
 		return err
+	},
+}
+
+var yugabyteAddIndexCmd = &cli.Command{
+	Name:   "yugabyte-add-index",
+	Usage:  "Add index via boostd-data to YugabyteDB",
+	Before: before,
+	Flags: []cli.Flag{
+		&cli.StringSliceFlag{
+			Name:     "hosts",
+			Usage:    "yugabyte hosts to connect to over cassandra interface eg '127.0.0.1'",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:     "connect-string",
+			Usage:    "postgres connect string eg 'postgresql://postgres:postgres@localhost'",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:  "miner-address",
+			Usage: "default miner address eg f1234",
+		},
+		&cli.StringFlag{
+			Name:     "filename",
+			Usage:    "",
+			Required: true,
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		ctx := cliutil.ReqContext(cctx)
+
+		// Create a yugabyte data service
+		settings := yugabyte.DBSettings{
+			Hosts:         cctx.StringSlice("hosts"),
+			ConnectString: cctx.String("connect-string"),
+		}
+
+		migrator := yugabyte.NewMigrator(settings, migrations.DisabledMinerAddr)
+
+		bdsvc := svc.NewYugabyte(settings, migrator)
+
+		piececidStr := cctx.String("filename")
+
+		piececid, err := cid.Parse(piececidStr)
+		if err != nil {
+			return err
+		}
+
+		reader, err := os.Open(cctx.String("filename"))
+		if err != nil {
+			return fmt.Errorf("couldn't open file: %s", err)
+		}
+		defer reader.Close()
+
+		opts := []carv2.Option{carv2.ZeroLengthSectionAsEOF(true)}
+		blockReader, err := carv2.NewBlockReader(reader, opts...)
+		if err != nil {
+			return fmt.Errorf("getting block reader over piece file %s: %w", piececid, err)
+		}
+
+		recs := make([]model.Record, 0)
+
+		now := time.Now()
+
+		blockMetadata, err := blockReader.SkipNext()
+		for err == nil {
+			recs = append(recs, model.Record{
+				Cid: blockMetadata.Cid,
+				OffsetSize: model.OffsetSize{
+					Offset: blockMetadata.Offset,
+					Size:   blockMetadata.Size,
+				},
+			})
+
+			blockMetadata, err = blockReader.SkipNext()
+		}
+		if !errors.Is(err, io.EOF) {
+			return fmt.Errorf("generating index for piece %s: %w", piececid, err)
+		}
+
+		log.Warnw("read index successfully", "took", time.Since(now))
+
+		now = time.Now()
+
+		aip := bdsvc.Impl.AddIndex(ctx, piececid, recs, true)
+		for resp := range aip {
+			if resp.Err != "" {
+				return fmt.Errorf("failed to add index to yugabytedb: %s", resp.Err)
+			}
+		}
+		log.Warnw("added index to yugabytedb successfully", "took", time.Since(now))
+
+		return nil
 	},
 }
