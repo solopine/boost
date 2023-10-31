@@ -281,6 +281,10 @@ var yugabyteAddIndexCmd = &cli.Command{
 		migrator := yugabyte.NewMigrator(settings, migrations.DisabledMinerAddr)
 
 		bdsvc := svc.NewYugabyte(settings, migrator)
+		err := bdsvc.Impl.Start(ctx)
+		if err != nil {
+			return err
+		}
 
 		piececidStr := cctx.String("filename")
 
