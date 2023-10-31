@@ -334,6 +334,7 @@ var yugabyteAddIndexCmd = &cli.Command{
 			if resp.Err != "" {
 				return fmt.Errorf("failed to add index to yugabytedb: %s", resp.Err)
 			}
+			log.Warnw("adding index to yugabytedb", "progress", resp.Progress)
 		}
 		log.Warnw("added index to yugabytedb successfully", "took", time.Since(now))
 
