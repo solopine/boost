@@ -321,7 +321,7 @@ var yugabyteAddIndexCmd = &cli.Command{
 			return fmt.Errorf("generating index for piece %s: %w", piececid, err)
 		}
 
-		log.Warnw("read index successfully", "took", time.Since(now))
+		log.Warnw("read index successfully", "piececid", piececid, "recs", len(recs), "took", time.Since(now))
 
 		now = time.Now()
 
