@@ -257,13 +257,15 @@ var yugabyteAddIndexCmd = &cli.Command{
 			Required: true,
 		},
 		&cli.StringFlag{
-			Name:  "miner-address",
-			Usage: "default miner address eg f1234",
-		},
-		&cli.StringFlag{
 			Name:     "filename",
 			Usage:    "",
 			Required: true,
+		},
+		&cli.IntFlag{
+			Name:     "CQLTimeout",
+			Usage:    "client timeout value in seconds for CQL queries",
+			Required: false,
+			Value:    yugabyte.CqlTimeout,
 		},
 	},
 	Action: func(cctx *cli.Context) error {
@@ -273,6 +275,7 @@ var yugabyteAddIndexCmd = &cli.Command{
 		settings := yugabyte.DBSettings{
 			Hosts:         cctx.StringSlice("hosts"),
 			ConnectString: cctx.String("connect-string"),
+			CQLTimeout:    cctx.Int("CQLTimeout"),
 		}
 
 		migrator := yugabyte.NewMigrator(settings, migrations.DisabledMinerAddr)
