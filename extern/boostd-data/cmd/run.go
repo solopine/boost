@@ -267,15 +267,21 @@ var yugabyteAddIndexCmd = &cli.Command{
 			Required: false,
 			Value:    yugabyte.CqlTimeout,
 		},
+		&cli.IntFlag{
+			Name:  "insert-parallelism",
+			Usage: "the number of threads to use when inserting into the PayloadToPieces index",
+			Value: 16,
+		},
 	},
 	Action: func(cctx *cli.Context) error {
 		ctx := cliutil.ReqContext(cctx)
 
 		// Create a yugabyte data service
 		settings := yugabyte.DBSettings{
-			Hosts:         cctx.StringSlice("hosts"),
-			ConnectString: cctx.String("connect-string"),
-			CQLTimeout:    cctx.Int("CQLTimeout"),
+			Hosts:                    cctx.StringSlice("hosts"),
+			ConnectString:            cctx.String("connect-string"),
+			CQLTimeout:               cctx.Int("CQLTimeout"),
+			PayloadPiecesParallelism: cctx.Int("insert-parallelism"),
 		}
 
 		migrator := yugabyte.NewMigrator(settings, migrations.DisabledMinerAddr)
