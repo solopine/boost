@@ -240,7 +240,7 @@ var runCmd = &cli.Command{
 		if err != nil {
 			return fmt.Errorf("starting block filter: %w", err)
 		}
-		pd := piecedirectory.NewPieceDirectory(cl, sa, cctx.Int("add-index-throttle"),
+		pd := piecedirectory.NewPieceDirectory(cl, sa, nil, nil, cctx.Int("add-index-throttle"),
 			piecedirectory.WithAddIndexConcurrency(cctx.Int("add-index-concurrency")))
 		remoteStore := remoteblockstore.NewRemoteBlockstore(pd, &bitswapBlockMetrics)
 		server := NewBitswapServer(remoteStore, host, multiFilter)

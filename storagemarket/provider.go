@@ -5,6 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/filecoin-project/boost/txcar"
+	miner13 "github.com/filecoin-project/go-state-types/builtin/v13/miner"
+	minertypes "github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"io"
 	"os"
 	"strings"
@@ -29,6 +32,7 @@ import (
 	"github.com/filecoin-project/boost/transport"
 	"github.com/filecoin-project/dagstore"
 	"github.com/filecoin-project/go-address"
+	addr "github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/lotus/api/v1api"
 	sealing "github.com/filecoin-project/lotus/storage/pipeline"
@@ -251,14 +255,38 @@ func (p *Provider) GetAsk() *legacytypes.SignedStorageAsk {
 func (p *Provider) ImportOfflineDealData(ctx context.Context, dealUuid uuid.UUID, filePath string, delAfterImport bool) (pi *api.ProviderDealRejectionInfo, err error) {
 	p.dealLogger.Infow(dealUuid, "import data for offline deal", "filepath", filePath, "delete after import", delAfterImport)
 
-	// db should already have a deal with this uuid as the deal proposal should have been made beforehand
-	ds, err := p.dealsDB.ByID(p.ctx, dealUuid)
+	txPiece, err := txcar.ParseTxPiece(filePath)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("no pre-existing deal proposal for offline deal %s: %w", dealUuid, err)
-		}
-		return nil, fmt.Errorf("getting offline deal %s: %w", dealUuid, err)
+		return nil, fmt.Errorf("txcar.ParseTxPiece %s, %s: %w", dealUuid, filePath, err)
 	}
+
+	var ds *types.ProviderDealState
+	if txPiece != nil {
+		log.Infow("ImportOfflineDealData for txPiece", "dealUuid", dealUuid, "txPiece", txPiece)
+		if dealUuid != txPiece.CarKey {
+			return nil, fmt.Errorf("dealUuid(%s) != txPiece.CarKey(%s): %w", dealUuid, filePath, err)
+		}
+
+		dss, err := p.dealsDB.ByPieceCID(p.ctx, txPiece.PieceCid)
+		if err != nil {
+			return nil, fmt.Errorf("dealsDB.ByPieceCID %s, %s: %w", dealUuid, txPiece.PieceCid, err)
+		}
+		if len(dss) != 1 {
+			return nil, fmt.Errorf("len(dss) (%d) != 1 %s, %s: %w", len(dss), dealUuid, txPiece.PieceCid, err)
+		}
+		ds = dss[0]
+	} else {
+		log.Infow("ImportOfflineDealData for normal Piece", "dealUuid", dealUuid, "filePath", filePath)
+		// db should already have a deal with this uuid as the deal proposal should have been made beforehand
+		ds, err = p.dealsDB.ByID(p.ctx, dealUuid)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, fmt.Errorf("no pre-existing deal proposal for offline deal %s: %w", dealUuid, err)
+			}
+			return nil, fmt.Errorf("getting offline deal %s: %w", dealUuid, err)
+		}
+	}
+
 	if !ds.IsOffline {
 		return nil, fmt.Errorf("deal %s is not an offline deal", dealUuid)
 	}
@@ -666,6 +694,16 @@ func (p *Provider) AddPieceToSector(ctx context.Context, deal smtypes.ProviderDe
 			EndEpoch:   deal.ClientDealProposal.Proposal.EndEpoch,
 		},
 		KeepUnsealed: deal.FastRetrieval,
+
+		// just for send deal.InboundFilePath
+		PieceActivationManifest: &minertypes.PieceActivationManifest{
+			Notify: []miner13.DataActivationNotification{
+				{
+					Address: addr.Undef,
+					Payload: []byte(deal.InboundFilePath),
+				},
+			},
+		},
 	}
 
 	// Attempt to add the piece to a sector (repeatedly if necessary)
@@ -687,6 +725,7 @@ func addPieceWithRetry(ctx context.Context, pieceAdder smtypes.PieceAdder, piece
 	info, err := pieceAdder.SectorAddPieceToAny(ctx, pieceSize, pieceData, sdInfo)
 	curTime := build.Clock.Now()
 	for err != nil && build.Clock.Since(curTime) < addPieceRetryTimeout {
+		log.Errorw("----addPieceWithRetry", "sectorNum", info.Sector, "offset", info.Offset, "err", err)
 		// Check if the error was because there are too many sectors sealing
 		if !errors.Is(err, sealing.ErrTooManySectorsSealing) {
 			// There was some other error, return it

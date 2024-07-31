@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
-
+	"github.com/avast/retry-go/v4"
 	bcli "github.com/filecoin-project/boost/cli"
 	clinode "github.com/filecoin-project/boost/cli/node"
 	"github.com/filecoin-project/boost/cmd"
+	"github.com/filecoin-project/boost/cmd/boost/tx_dc"
 	"github.com/filecoin-project/boost/storagemarket/types"
 	types2 "github.com/filecoin-project/boost/transport/types"
 	"github.com/filecoin-project/go-address"
@@ -23,7 +23,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
 	inet "github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/urfave/cli/v2"
+	"golang.org/x/xerrors"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
 )
 
 const DealProtocolv120 = "/fil/storage/mk/1.2.0"
@@ -90,6 +96,10 @@ var dealFlags = []cli.Flag{
 		Usage: "indicates that deal index should not be announced to the IPNI(Network Indexer)",
 		Value: false,
 	},
+	&cli.StringFlag{
+		Name:  "tx-addr",
+		Usage: "tx-addr",
+	},
 }
 
 var dealCmd = &cli.Command{
@@ -127,6 +137,45 @@ var offlineDealCmd = &cli.Command{
 	},
 }
 
+var offlineBatchDealCmd = &cli.Command{
+	Name:  "offline-batch-deal",
+	Usage: "Make an offline batch deal with Boost",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:     "tx-dc-client",
+			Usage:    "TxDcClient",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:     "deal-file",
+			Usage:    "deal file",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:  "tx-addr",
+			Usage: "tx-addr",
+		},
+		&cli.IntFlag{
+			Name:  "start-epoch-head-offset",
+			Usage: "start epoch by when the deal should be proved by provider on-chain after current chain head",
+		},
+		&cli.IntFlag{
+			Name:  "duration",
+			Usage: "duration of the deal in epochs",
+			Value: 518400, // default is 2880 * 180 == 180 days
+		},
+		&cli.StringFlag{
+			Name:     "provider",
+			Usage:    "storage provider on-chain address",
+			Required: true,
+		},
+	},
+	Before: before,
+	Action: func(cctx *cli.Context) error {
+		return batchOfflineDealCmdAction(cctx)
+	},
+}
+
 func dealCmdAction(cctx *cli.Context, isOnline bool) error {
 	ctx := bcli.ReqContext(cctx)
 
@@ -158,10 +207,25 @@ func dealCmdAction(cctx *cli.Context, isOnline bool) error {
 		return err
 	}
 
+	if cctx.IsSet("tx-addr") {
+		txAddrString := cctx.String("tx-addr")
+		addrInfo, err = peer.AddrInfoFromString(txAddrString)
+		if err != nil {
+			return err
+		}
+	}
+
 	log.Debugw("found storage provider", "id", addrInfo.ID, "multiaddrs", addrInfo.Addrs, "addr", maddr)
 
-	if err := n.Host.Connect(ctx, *addrInfo); err != nil {
-		return fmt.Errorf("failed to connect to peer %s: %w", addrInfo.ID, err)
+	err = retry.Do(
+		func() error {
+			return n.Host.Connect(ctx, *addrInfo)
+		},
+		retry.Attempts(20),
+		retry.Delay(time.Second*30),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to retry connect to peer %s: %w", addrInfo.ID, err)
 	}
 
 	x, err := n.Host.Peerstore().FirstSupportedProtocol(addrInfo.ID, DealProtocolv120)
@@ -285,8 +349,16 @@ func dealCmdAction(cctx *cli.Context, isOnline bool) error {
 	defer s.Close()
 
 	var resp types.DealResponse
-	if err := doRpc(ctx, s, &dealParams, &resp); err != nil {
-		return fmt.Errorf("send proposal rpc: %w", err)
+
+	err = retry.Do(
+		func() error {
+			return doRpc(ctx, s, &dealParams, &resp)
+		},
+		retry.Attempts(20),
+		retry.Delay(time.Second*30),
+	)
+	if err != nil {
+		return fmt.Errorf("send proposal rpc after retry 20: %w", err)
 	}
 
 	if !resp.Accepted {
@@ -310,23 +382,210 @@ func dealCmdAction(cctx *cli.Context, isOnline bool) error {
 		return cmd.PrintJson(out)
 	}
 
-	msg := "sent deal proposal"
-	if !isOnline {
-		msg += " for offline deal"
+	//msg := "sent deal proposal"
+	//if !isOnline {
+	//	msg += " for offline deal"
+	//}
+	//msg += "\n"
+	//msg += fmt.Sprintf("  deal uuid: %s\n", dealUuid)
+	//msg += fmt.Sprintf("  storage provider: %s\n", maddr)
+	//msg += fmt.Sprintf("  client wallet: %s\n", walletAddr)
+	//msg += fmt.Sprintf("  payload cid: %s\n", rootCid)
+	//if isOnline {
+	//	msg += fmt.Sprintf("  url: %s\n", cctx.String("http-url"))
+	//}
+	//msg += fmt.Sprintf("  commp: %s\n", dealProposal.Proposal.PieceCID)
+	//msg += fmt.Sprintf("  start epoch: %d\n", dealProposal.Proposal.StartEpoch)
+	//msg += fmt.Sprintf("  end epoch: %d\n", dealProposal.Proposal.EndEpoch)
+	//msg += fmt.Sprintf("  provider collateral: %s\n", chain_types.FIL(dealProposal.Proposal.ProviderCollateral).Short())
+	//fmt.Println(msg)
+	msg := fmt.Sprintf("%s\t%s\t%s\t%s\t%d\t%d\n",
+		dealUuid, maddr, rootCid, dealProposal.Proposal.PieceCID, dealProposal.Proposal.StartEpoch, dealProposal.Proposal.EndEpoch)
+
+	fmt.Print(msg)
+
+	return nil
+}
+
+func batchOfflineDealCmdAction(cctx *cli.Context) error {
+	ctx := bcli.ReqContext(cctx)
+
+	provider := cctx.String("provider")
+	dealFilePath := cctx.String("deal-file")
+	dealFileDir := filepath.Dir(dealFilePath)
+
+	txDcClientStr := cctx.String("tx-dc-client")
+	txDcClient, ok := tx_dc.ParseTxDcClientString(txDcClientStr)
+	if !ok {
+		return xerrors.Errorf("cannot ParseTxDcClientString: %s", txDcClientStr)
 	}
-	msg += "\n"
-	msg += fmt.Sprintf("  deal uuid: %s\n", dealUuid)
-	msg += fmt.Sprintf("  storage provider: %s\n", maddr)
-	msg += fmt.Sprintf("  client wallet: %s\n", walletAddr)
-	msg += fmt.Sprintf("  payload cid: %s\n", rootCid)
-	if isOnline {
-		msg += fmt.Sprintf("  url: %s\n", cctx.String("http-url"))
+	txDcClientHandler, err := tx_dc.NewTxDcClientHandler(txDcClient, dealFilePath, provider)
+	if err != nil {
+		return err
 	}
-	msg += fmt.Sprintf("  commp: %s\n", dealProposal.Proposal.PieceCID)
-	msg += fmt.Sprintf("  start epoch: %d\n", dealProposal.Proposal.StartEpoch)
-	msg += fmt.Sprintf("  end epoch: %d\n", dealProposal.Proposal.EndEpoch)
-	msg += fmt.Sprintf("  provider collateral: %s\n", chain_types.FIL(dealProposal.Proposal.ProviderCollateral).Short())
-	fmt.Println(msg)
+
+	n, err := clinode.Setup(cctx.String(cmd.FlagRepo.Name))
+	if err != nil {
+		return err
+	}
+
+	api, closer, err := lcli.GetGatewayAPI(cctx)
+	if err != nil {
+		return fmt.Errorf("cant setup gateway connection: %w", err)
+	}
+	defer closer()
+
+	//
+	walletAddr, err := n.GetProvidedOrDefaultWallet(ctx, txDcClientHandler.LdnAddr())
+	if err != nil {
+		return err
+	}
+
+	log.Debugw("selected wallet", "wallet", walletAddr)
+
+	maddr, err := address.NewFromString(provider)
+	if err != nil {
+		return err
+	}
+
+	addrInfo, err := cmd.GetAddrInfo(ctx, api, maddr)
+	if err != nil {
+		return err
+	}
+
+	if cctx.IsSet("tx-addr") {
+		txAddrString := cctx.String("tx-addr")
+		addrInfo, err = peer.AddrInfoFromString(txAddrString)
+		if err != nil {
+			return err
+		}
+	}
+
+	log.Debugw("found storage provider", "id", addrInfo.ID, "multiaddrs", addrInfo.Addrs, "addr", maddr)
+
+	err = retry.Do(
+		func() error {
+			return n.Host.Connect(ctx, *addrInfo)
+		},
+		retry.Attempts(20),
+		retry.Delay(time.Second*30),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to retry connect to peer %s: %w", addrInfo.ID, err)
+	}
+
+	x, err := n.Host.Peerstore().FirstSupportedProtocol(addrInfo.ID, DealProtocolv120)
+	if err != nil {
+		return fmt.Errorf("getting protocols for peer %s: %w", addrInfo.ID, err)
+	}
+
+	if len(x) == 0 {
+		return fmt.Errorf("boost client cannot make a deal with storage provider %s because it does not support protocol version 1.2.0", maddr)
+	}
+
+	outFileName := txDcClientHandler.OutputFileName()
+	outFilePath := filepath.Join(dealFileDir, outFileName)
+	log.Infof("outFilePath:%s", outFilePath)
+
+	fOut, err := os.Create(outFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to create output file %s: %w", outFileName, err)
+	}
+	defer fOut.Close()
+
+	fHeader := txDcClientHandler.OutputHeader()
+	_, err = fOut.WriteString(fHeader)
+	if err != nil {
+		return fmt.Errorf("write header to output file: %w", err)
+	}
+
+	tipset, err := api.ChainHead(ctx)
+	if err != nil {
+		return fmt.Errorf("cannot get chain head: %w", err)
+	}
+
+	head := tipset.Height()
+	log.Debugw("current block height", "number", head)
+
+	startEpoch := head + abi.ChainEpoch(cctx.Int("start-epoch-head-offset"))
+	duration := cctx.Int("duration")
+
+	var providerCollateral abi.TokenAmount
+	{
+		pieceSize := txDcClientHandler.DealCar(0).PieceSize
+		bounds, err := api.StateDealProviderCollateralBounds(ctx, abi.PaddedPieceSize(pieceSize), true, chain_types.EmptyTSK)
+		if err != nil {
+			return fmt.Errorf("node error getting collateral bounds: %w", err)
+		}
+
+		providerCollateral = big.Div(big.Mul(bounds.Min, big.NewInt(6)), big.NewInt(5)) // add 20%
+	}
+
+	dealCount := txDcClientHandler.Count()
+	for i := 0; i < dealCount; i++ {
+		dealUuid := uuid.New()
+
+		txDealCar := txDcClientHandler.DealCar(i)
+		pieceCid := txDealCar.PieceCid
+		pieceSize := txDealCar.PieceSize
+		if pieceSize == 0 {
+			return fmt.Errorf("must provide piece-size parameter for CAR url")
+		}
+		rootCid := txDealCar.RootCid
+
+		transfer := types.Transfer{}
+
+		// Create a deal proposal to storage provider using deal protocol v1.2.0 format
+		dealProposal, err := dealProposal(ctx, n, walletAddr, rootCid, abi.PaddedPieceSize(pieceSize), pieceCid, maddr, startEpoch, duration, true, providerCollateral, abi.NewTokenAmount(1))
+		if err != nil {
+			return fmt.Errorf("failed to create a deal proposal: %w", err)
+		}
+
+		dealParams := types.DealParams{
+			DealUUID:           dealUuid,
+			ClientDealProposal: *dealProposal,
+			DealDataRoot:       rootCid,
+			IsOffline:          true,
+			Transfer:           transfer,
+			RemoveUnsealedCopy: false,
+			SkipIPNIAnnounce:   false,
+		}
+
+		log.Debugw("about to submit deal proposal", "uuid", dealUuid.String())
+
+		var resp types.DealResponse
+
+		err = retry.Do(
+			func() error {
+				s, err := n.Host.NewStream(ctx, addrInfo.ID, DealProtocolv120)
+				if err != nil {
+					return fmt.Errorf("failed to open stream to peer %s: %w", addrInfo.ID, err)
+				}
+				defer s.Close()
+				return doRpc(ctx, s, &dealParams, &resp)
+			},
+			retry.Attempts(10),
+			retry.Delay(time.Second*30),
+		)
+		if err != nil {
+			return fmt.Errorf("send proposal rpc: %w", err)
+		}
+
+		if !resp.Accepted {
+			return fmt.Errorf("deal proposal rejected: %s", resp.Message)
+		}
+
+		msgToFile := txDcClientHandler.OutputLine(i, dealUuid, maddr, rootCid, dealProposal)
+		_, err = fOut.WriteString(msgToFile)
+		if err != nil {
+			return fmt.Errorf("write output file: %w", err)
+		}
+
+		msg := fmt.Sprintf("%d/%d\t%s\t%s\t%s\t%s\t%d\t%d\n",
+			i+1, dealCount,
+			dealUuid, maddr, rootCid, dealProposal.Proposal.PieceCID, dealProposal.Proposal.StartEpoch, dealProposal.Proposal.EndEpoch)
+		fmt.Print(msg)
+	}
 
 	return nil
 }
