@@ -88,18 +88,21 @@ BINS+=migrate-lid
 
 boostx: $(BUILD_DEPS)
 	rm -f boostx
+	#$(GOCC) build -gcflags "all=-N -l" $(GOFLAGS) -o boostx ./cmd/boostx
 	$(GOCC) build $(GOFLAGS) -o boostx ./cmd/boostx
 .PHONY: boostx
 BINS+=boostx
 
 boost: $(BUILD_DEPS)
 	rm -f boost
-	$(GOCC) build $(GOFLAGS) -o boost ./cmd/boost
+	$(GOCC) build $(GOFLAGS) -gcflags "all=-N -l" -o boost ./cmd/boost
+	#$(GOCC) build $(GOFLAGS) -o boost ./cmd/boost
 .PHONY: boost
 BINS+=boost
 
 boostd: $(BUILD_DEPS)
 	rm -f boostd
+	#$(GOCC) build $(GOFLAGS) -gcflags "all=-N -l" -o boostd ./cmd/boostd
 	$(GOCC) build $(GOFLAGS) -o boostd ./cmd/boostd
 .PHONY: boostd
 BINS+=boostd

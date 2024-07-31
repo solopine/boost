@@ -4,8 +4,14 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"database/sql"
+	"encoding/gob"
 	"errors"
 	"fmt"
+
+	"github.com/filecoin-project/boost/txcar"
+	txcarlib "github.com/solopine/txcar/txcar"
+	"golang.org/x/exp/slices"
 	"io"
 	"runtime"
 	"sync"
@@ -79,9 +85,11 @@ type PieceDirectory struct {
 	addIdxThrottleSize int
 	addIdxThrottle     chan struct{}
 	addIdxOpByCid      sync.Map
+	db                 *sql.DB
+	sa                 types.TxPieceRecordsReader
 }
 
-func NewPieceDirectory(store *bdclient.Store, pr types.PieceReader, addIndexThrottleSize int, opts ...Option) *PieceDirectory {
+func NewPieceDirectory(store *bdclient.Store, pr types.PieceReader, db *sql.DB, sa types.TxPieceRecordsReader, addIndexThrottleSize int, opts ...Option) *PieceDirectory {
 	prCache := ttlcache.NewCache()
 	_ = prCache.SetTTL(30 * time.Second)
 	prCache.SetCacheSizeLimit(MaxCachedReaders)
@@ -95,6 +103,8 @@ func NewPieceDirectory(store *bdclient.Store, pr types.PieceReader, addIndexThro
 		settings: &settings{
 			addIndexConcurrency: config.DefaultAddIndexConcurrency,
 		},
+		db: db,
+		sa: sa,
 	}
 
 	for _, opt := range opts {
@@ -199,7 +209,7 @@ func (ps *PieceDirectory) GetPieceMetadata(ctx context.Context, pieceCid cid.Cid
 // Get the list of deals (and the sector the data is in) for a particular piece
 func (ps *PieceDirectory) GetPieceDeals(ctx context.Context, pieceCid cid.Cid) ([]model.DealInfo, error) {
 	defer func(start time.Time) {
-		log.Debugw("piece directory ; GetPieceDeals span", "took", time.Since(start))
+		//log.Debugw("piece directory ; GetPieceDeals span", "took", time.Since(start))
 	}(time.Now())
 
 	ctx, span := tracing.Tracer.Start(ctx, "pm.get_piece_deals")
@@ -224,6 +234,7 @@ func (ps *PieceDirectory) GetOffsetSize(ctx context.Context, pieceCid cid.Cid, h
 	return ps.store.GetOffsetSize(ctx, pieceCid, hash)
 }
 
+// dealInfo.DealUuid can be txcar encoded
 func (ps *PieceDirectory) AddDealForPiece(ctx context.Context, pieceCid cid.Cid, dealInfo model.DealInfo) error {
 	defer func(start time.Time) {
 		log.Debugw("piece directory ; AddDealForPiece span", "piececid", pieceCid, "uuid", dealInfo.DealUuid, "took", time.Since(start))
@@ -238,6 +249,22 @@ func (ps *PieceDirectory) AddDealForPiece(ctx context.Context, pieceCid cid.Cid,
 		return err
 	}
 
+	// Add deal to list of deals for this piece
+	if err := ps.store.AddDealForPiece(ctx, pieceCid, dealInfo); err != nil {
+		return fmt.Errorf("saving deal %s to store: %w", dealInfo.DealUuid, err)
+	}
+	log.Infow("----AddDealForPiece.AddDealForPiece.done", "pieceCid", pieceCid.String(), "dealInfo.DealUuid", dealInfo.DealUuid)
+	{
+		// restore dealInfo.DealUuid
+		txPiece, realDealUuidStr, err := txcar.DecodeFromDealUuidStr(dealInfo.DealUuid)
+		if err != nil {
+			return err
+		}
+		if txPiece != nil {
+			dealInfo.DealUuid = realDealUuidStr
+		}
+	}
+
 	if !isIndexed {
 		// Perform indexing of piece
 		if err := ps.addIndexForPieceThrottled(ctx, pieceCid, dealInfo); err != nil {
@@ -245,11 +272,6 @@ func (ps *PieceDirectory) AddDealForPiece(ctx context.Context, pieceCid cid.Cid,
 		}
 	} else {
 		log.Infow("add deal for piece", "index", "not re-indexing, piece already indexed")
-	}
-
-	// Add deal to list of deals for this piece
-	if err := ps.store.AddDealForPiece(ctx, pieceCid, dealInfo); err != nil {
-		return fmt.Errorf("saving deal %s to store: %w", dealInfo.DealUuid, err)
 	}
 
 	return nil
@@ -312,26 +334,52 @@ func (ps *PieceDirectory) addIndexForPieceThrottled(ctx context.Context, pieceCi
 func (ps *PieceDirectory) addIndexForPiece(ctx context.Context, pieceCid cid.Cid, dealInfo model.DealInfo) error {
 	// Get a reader over the piece data
 	log.Debugw("add index: get index", "pieceCid", pieceCid)
-	reader, err := ps.pieceReader.GetReader(ctx, dealInfo.MinerAddr, dealInfo.SectorID, dealInfo.PieceOffset, dealInfo.PieceLength)
-	log.Debugf("got the piece reader for piece %s and deal %s", pieceCid, dealInfo.DealUuid)
-	if err != nil {
-		return fmt.Errorf("getting reader over piece %s: %w", pieceCid, err)
-	}
-
-	defer reader.Close() //nolint:errcheck
 
 	// Try to parse data as containing a data segment index
 	log.Debugw("add index: read index", "pieceCid", pieceCid)
-	recs, err := parsePieceWithDataSegmentIndex(pieceCid, int64(dealInfo.PieceLength.Unpadded()), reader)
+
+	txPiece, err := txcar.GetTxPieceFromDb(ctx, ps.db, pieceCid)
 	if err != nil {
-		log.Infow("add index: data segment check failed. falling back to car", "pieceCid", pieceCid, "err", err)
-		// Iterate over all the blocks in the piece to extract the index records
-		if _, err := reader.Seek(0, io.SeekStart); err != nil {
-			return fmt.Errorf("seek to start for piece %s: %w", pieceCid, err)
+		return err
+	}
+	if txPiece != nil && txPiece.Version == txcarlib.V1 {
+		log.Infow("----txPiece V1 addIndexForPiece", "pieceCid", txPiece.PieceCid.String())
+		// create mock recs
+		mockRec := model.Record{}
+		if err := ps.store.AddIndex(ctx, pieceCid, []model.Record{mockRec}, true); err != nil {
+			return fmt.Errorf("txcar-adding CAR index for piece %s: %w", pieceCid, err)
 		}
-		recs, err = parseRecordsFromCar(reader)
+		return nil
+	}
+
+	var recs []model.Record
+	if txPiece != nil {
+		log.Infow("----txPiece addIndexForPiece", "pieceCid", txPiece.PieceCid.String())
+		recs, err = ps.ParseRecordsForTxPiece(ctx, dealInfo.MinerAddr, dealInfo.SectorID, txPiece.PieceCid)
 		if err != nil {
-			return fmt.Errorf("parse car for piece %s: %w", pieceCid, err)
+			return fmt.Errorf("ParseRecordsForTxPiece dealInfo.MinerAddr %s, dealInfo.SectorID: %d. err: %w",
+				dealInfo.MinerAddr.String(), dealInfo.SectorID, err)
+		}
+	} else {
+		reader, err := ps.pieceReader.GetReader(ctx, dealInfo.MinerAddr, dealInfo.SectorID, dealInfo.PieceOffset, dealInfo.PieceLength)
+		log.Debugf("got the piece reader for piece %s and deal %s", pieceCid, dealInfo.DealUuid)
+		if err != nil {
+			return fmt.Errorf("getting reader over piece %s: %w", pieceCid, err)
+		}
+
+		defer reader.Close() //nolint:errcheck
+
+		recs, err = parsePieceWithDataSegmentIndex(pieceCid, int64(dealInfo.PieceLength.Unpadded()), reader)
+		if err != nil {
+			log.Infow("add index: data segment check failed. falling back to car", "pieceCid", pieceCid, "err", err)
+			// Iterate over all the blocks in the piece to extract the index records
+			if _, err := reader.Seek(0, io.SeekStart); err != nil {
+				return fmt.Errorf("seek to start for piece %s: %w", pieceCid, err)
+			}
+			recs, err = parseRecordsFromCar(reader)
+			if err != nil {
+				return fmt.Errorf("parse car for piece %s: %w", pieceCid, err)
+			}
 		}
 	}
 
@@ -805,6 +853,10 @@ func (ps *PieceDirectory) BlockstoreGet(ctx context.Context, c cid.Cid) ([]byte,
 	// Get the pieces that contain the cid
 	pieces, err := ps.PiecesContainingMultihash(ctx, c.Hash())
 
+	slices.SortFunc(pieces, func(a, b cid.Cid) int {
+		return bytes.Compare(a.Bytes(), b.Bytes())
+	})
+
 	// Check if it's an identity cid, if it is, return its digest
 	if err != nil {
 		digest, ok, iderr := isIdentity(c)
@@ -817,10 +869,26 @@ func (ps *PieceDirectory) BlockstoreGet(ctx context.Context, c cid.Cid) ([]byte,
 		return nil, fmt.Errorf("no pieces with cid %s found", c)
 	}
 
+	//
+	//txPiece, err := txcar.GetTxPieceFromDb(ctx, ps.db, pieces[0])
+	txPiece, err := ps.store.GetTxPiece(ctx, pieces[0])
+	if err != nil {
+		return nil, err
+	}
+	if txPiece != nil {
+		offsetSize, err := ps.GetOffsetSize(ctx, txPiece.PieceCid, c.Hash())
+		if err != nil {
+			return nil, err
+		}
+		log.Infow("----txPiece GetOffsetSize", "pieceCid", txPiece.PieceCid.String(), "hash", c.Hash().String(), "offsetSize", offsetSize)
+		return txcarlib.TxBlockGetDefault(ctx, txPiece.CarKey, offsetSize.Offset, offsetSize.Size, txPiece.Version)
+	}
+
 	// Get a reader over one of the pieces and extract the block data
 	var merr error
 	for i, pieceCid := range pieces {
 		data, err := func() ([]byte, error) {
+			log.Infow("----try GetSharedPieceReader", "pieceCid", pieceCid.String(), "hash", c.Hash().String())
 			// Get a reader over the piece data
 			reader, err := ps.GetSharedPieceReader(ctx, pieceCid)
 			if err != nil {
@@ -830,7 +898,9 @@ func (ps *PieceDirectory) BlockstoreGet(ctx context.Context, c cid.Cid) ([]byte,
 
 			// Get the offset of the block within the piece (CAR file)
 			offsetSize, err := ps.GetOffsetSize(ctx, pieceCid, c.Hash())
+			log.Infow("----try GetSharedPieceReader2", "pieceCid", pieceCid.String(), "hash", c.Hash().String(), "offsetSize", offsetSize)
 			if err != nil {
+				log.Infow("----try GetSharedPieceReader.err1", "err", err)
 				return nil, fmt.Errorf("getting offset/size for cid %s in piece %s: %w", c, pieceCid, err)
 			}
 
@@ -843,19 +913,23 @@ func (ps *PieceDirectory) BlockstoreGet(ctx context.Context, c cid.Cid) ([]byte,
 			}
 			readCid, data, err := util.ReadNode(bufio.NewReaderSize(readerAt, bufferSize))
 			if err != nil {
+				log.Infow("----try GetSharedPieceReader.err2", "err", err)
 				return nil, fmt.Errorf("reading data for block %s from reader for piece %s: %w", c, pieceCid, err)
 			}
 			if !bytes.Equal(readCid.Hash(), c.Hash()) {
+				log.Infow("----try GetSharedPieceReader.err3", "readCid.Hash()", readCid.Hash().String(), "c.Hash()", c.Hash().String())
 				return nil, fmt.Errorf("read block %s from reader for piece %s, but expected block %s", readCid, pieceCid, c)
 			}
 			return data, nil
 		}()
 		if err != nil {
+			log.Infow("----try GetSharedPieceReader.err", "pieceCid", pieceCid.String(), "hash", c.Hash().String(), "err", err)
 			if i < 3 {
 				merr = multierror.Append(merr, err)
 			}
 			continue
 		}
+		log.Infow("----try GetSharedPieceReader.return", "pieceCid", pieceCid.String(), "hash", c.Hash().String())
 		return data, nil
 	}
 
@@ -1029,6 +1103,8 @@ func (s *SectorAccessorAsPieceReader) GetReader(ctx context.Context, minerAddr a
 	ctx, span := tracing.Tracer.Start(ctx, "sealer.get_reader")
 	defer span.End()
 
+	log.Infow("----GetReader", "minerAddr", minerAddr, "id", id, "offset", offset, "length", length)
+	log.Infof("----GetReader.SectorAccessor:%T", s.SectorAccessor)
 	isUnsealed, err := s.SectorAccessor.IsUnsealed(ctx, id, offset.Unpadded(), length.Unpadded())
 	if err != nil {
 		return nil, fmt.Errorf("checking unsealed state of sector %d: %w", id, err)
@@ -1054,4 +1130,42 @@ func isIdentity(c cid.Cid) (digest []byte, ok bool, err error) {
 	ok = dmh.Code == multihash.IDENTITY
 	digest = dmh.Digest
 	return digest, ok, nil
+}
+
+func (ps *PieceDirectory) ParseRecordsForTxPiece(ctx context.Context, minerAddr address.Address, id abi.SectorNumber, pieceCid cid.Cid) ([]model.Record, error) {
+	log.Infow("ParseRecordsForTxPiece", "minerAddr", minerAddr.String(), "id", id, "pieceCid", pieceCid)
+	reader, err := ps.sa.ReadTxPieceRecords(ctx, minerAddr, id)
+	if err != nil {
+		return nil, err
+	}
+
+	dec := gob.NewDecoder(reader)
+
+	// 1. read txpiece
+	var txPiece txcarlib.TxPiece
+	if err := dec.Decode(&txPiece); err != nil {
+		return nil, err
+	}
+	if txPiece.PieceCid != pieceCid {
+		return nil, xerrors.Errorf("pieceCid error. pieceCid in file: %s, pieceCid expected: %s", txPiece.PieceCid, pieceCid)
+	}
+
+	// 2. read txRecs
+	var txRecs []txcarlib.TxBlockRecord
+	if err := dec.Decode(&txRecs); err != nil {
+		return nil, err
+	}
+
+	recs := make([]model.Record, 0, len(txRecs))
+	for _, txRec := range txRecs {
+		recs = append(recs, model.Record{
+			Cid: txRec.Cid,
+			OffsetSize: model.OffsetSize{
+				Offset: txRec.Offset,
+				Size:   txRec.Size,
+			},
+		})
+	}
+
+	return recs, nil
 }

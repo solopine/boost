@@ -38,6 +38,7 @@ func main() {
 			dealStatusCmd,
 			retrieveCmd,
 			offlineDealCmd,
+			offlineBatchDealCmd,
 			providerCmd,
 			walletCmd,
 			directDealAllocate,

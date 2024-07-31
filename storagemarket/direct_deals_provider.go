@@ -2,8 +2,13 @@ package storagemarket
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/filecoin-project/boost/txcar"
+	addr "github.com/filecoin-project/go-address"
+	miner13 "github.com/filecoin-project/go-state-types/builtin/v13/miner"
+	"io"
 	"os"
 	"runtime/debug"
 	"strings"
@@ -65,9 +70,10 @@ type DirectDealsProvider struct {
 
 	pd *piecedirectory.PieceDirectory
 	ip *indexprovider.Wrapper
+	db *sql.DB
 }
 
-func NewDirectDealsProvider(cfg DDPConfig, minerAddr address.Address, fullnodeApi v1api.FullNode, pieceAdder types.PieceAdder, commpCalc smtypes.CommpCalculator, commpt CommpThrottle, sps sealingpipeline.API, directDealsDB *db.DirectDealsDB, dealLogger *logs.DealLogger, piecedirectory *piecedirectory.PieceDirectory, ip *indexprovider.Wrapper) *DirectDealsProvider {
+func NewDirectDealsProvider(cfg DDPConfig, minerAddr address.Address, fullnodeApi v1api.FullNode, pieceAdder types.PieceAdder, commpCalc smtypes.CommpCalculator, commpt CommpThrottle, sps sealingpipeline.API, directDealsDB *db.DirectDealsDB, dealLogger *logs.DealLogger, piecedirectory *piecedirectory.PieceDirectory, ip *indexprovider.Wrapper, db *sql.DB) *DirectDealsProvider {
 	return &DirectDealsProvider{
 		config:        cfg,
 		Address:       minerAddr,
@@ -84,6 +90,7 @@ func NewDirectDealsProvider(cfg DDPConfig, minerAddr address.Address, fullnodeAp
 		running:    make(map[uuid.UUID]struct{}),
 		pd:         piecedirectory,
 		ip:         ip,
+		db:         db,
 	}
 }
 
@@ -343,34 +350,56 @@ func (ddp *DirectDealsProvider) execDeal(ctx context.Context, entry *smtypes.Dir
 	log.Infow("processing direct deal", "uuid", dealUuid, "checkpoint", entry.Checkpoint, "piececid", entry.PieceCID, "filepath", entry.InboundFilePath, "clientAddr", entry.Client, "allocationId", entry.AllocationID)
 	ddp.dealLogger.Infow(dealUuid, "deal execution initiated", "deal state", entry)
 
-	if entry.Checkpoint <= dealcheckpoints.Accepted { // before commp
+	txPiece, err := txcar.ParseTxPiece(entry.InboundFilePath)
+	if err != nil {
+		return &dealMakingError{
+			error: fmt.Errorf("failed to ParseTxPiece '%s': %w", entry.InboundFilePath, err),
+			retry: smtypes.DealRetryFatal,
+		}
+	}
 
-		// os stat
-		fstat, err := os.Stat(entry.InboundFilePath)
-		if err != nil {
-			return &dealMakingError{
-				error: fmt.Errorf("failed to open file '%s': %w", entry.InboundFilePath, err),
-				retry: smtypes.DealRetryFatal,
+	if entry.Checkpoint <= dealcheckpoints.Accepted { // before commp
+		var carSize int64
+		if txPiece != nil {
+			carSize = int64(txPiece.CarSize)
+		} else {
+			// os stat
+			fstat, err := os.Stat(entry.InboundFilePath)
+			if err != nil {
+				return &dealMakingError{
+					error: fmt.Errorf("failed to open file '%s': %w", entry.InboundFilePath, err),
+					retry: smtypes.DealRetryFatal,
+				}
 			}
+			carSize = fstat.Size()
 		}
 
-		ddp.dealLogger.Infow(dealUuid, "size of deal", "filepath", entry.InboundFilePath, "size", fstat.Size())
+		ddp.dealLogger.Infow(dealUuid, "size of deal", "filepath", entry.InboundFilePath, "size", carSize)
 		ddp.dealLogger.Infow(dealUuid, "generating commp")
 
-		// TODO: should we be passing pieceSize here ??!?
-		pieceSize := abi.UnpaddedPieceSize(fstat.Size())
+		var generatedPieceInfo *abi.PieceInfo
+		if txPiece != nil {
+			generatedPieceInfo = &abi.PieceInfo{
+				Size:     txPiece.PieceSize,
+				PieceCID: txPiece.PieceCid,
+			}
+		} else {
+			// TODO: should we be passing PieceSize here ??!?
+			pieceSize := abi.UnpaddedPieceSize(carSize)
 
-		generatedPieceInfo, dmErr := generatePieceCommitment(ctx, ddp.commpCalc, ddp.commpThrottle, entry.InboundFilePath, pieceSize.Padded(), ddp.config.RemoteCommp)
-		if dmErr != nil {
-			return &dealMakingError{
-				retry: types.DealRetryManual,
-				error: fmt.Errorf("failed to generate commp: %w", dmErr),
+			var dmErr error
+			generatedPieceInfo, dmErr = generatePieceCommitment(ctx, ddp.commpCalc, ddp.commpThrottle, entry.InboundFilePath, pieceSize.Padded(), ddp.config.RemoteCommp)
+			if dmErr != nil {
+				return &dealMakingError{
+					retry: types.DealRetryManual,
+					error: fmt.Errorf("failed to generate commp: %w", dmErr),
+				}
 			}
 		}
 
-		entry.InboundFileSize = fstat.Size()
+		entry.InboundFileSize = carSize
 
-		log.Infow("direct deal details", "filepath", entry.InboundFilePath, "supplied-piececid", entry.PieceCID, "calculated-piececid", generatedPieceInfo.PieceCID, "calculated-piecesize", generatedPieceInfo.Size, "os stat size", fstat.Size())
+		log.Infow("direct deal details", "filepath", entry.InboundFilePath, "supplied-piececid", entry.PieceCID, "calculated-piececid", generatedPieceInfo.PieceCID, "calculated-piecesize", generatedPieceInfo.Size, "os stat size", carSize)
 
 		if !entry.PieceCID.Equals(generatedPieceInfo.PieceCID) {
 			return &dealMakingError{
@@ -378,9 +407,21 @@ func (ddp *DirectDealsProvider) execDeal(ctx context.Context, entry *smtypes.Dir
 				error: fmt.Errorf("commP expected=%s, actual=%s: %w", entry.PieceCID, generatedPieceInfo.PieceCID, ErrCommpMismatch),
 			}
 		}
+
 		ddp.dealLogger.Infow(dealUuid, "completed generating commp")
 
 		entry.PieceSize = generatedPieceInfo.Size
+
+		if txPiece != nil {
+			// add row to tx_db
+			err = txcar.AddTxPieceToDb(ctx, ddp.db, txPiece)
+			if err != nil {
+				return &dealMakingError{
+					retry: smtypes.DealRetryFatal,
+					error: fmt.Errorf("failed to persist txPiece: %w", err),
+				}
+			}
+		}
 
 		if err := ddp.updateCheckpoint(ctx, entry, dealcheckpoints.Transferred); err != nil {
 			return err
@@ -425,7 +466,12 @@ func (ddp *DirectDealsProvider) execDeal(ctx context.Context, entry *smtypes.Dir
 					Client: abi.ActorID(clientId),
 					ID:     verifreg13types.AllocationId(entry.AllocationID),
 				},
-				Notify: nil,
+				Notify: []miner13.DataActivationNotification{
+					{
+						Address: addr.Undef,
+						Payload: []byte(entry.InboundFilePath),
+					},
+				},
 			},
 
 			// Best-effort deal asks
@@ -434,11 +480,16 @@ func (ddp *DirectDealsProvider) execDeal(ctx context.Context, entry *smtypes.Dir
 
 		// Open a reader over the piece data
 		ddp.dealLogger.Infow(dealUuid, "opening reader over piece data", "filepath", entry.InboundFilePath)
-		paddedReader, err := openReader(entry.InboundFilePath, entry.PieceSize.Unpadded())
-		if err != nil {
-			return &dealMakingError{
-				retry: types.DealRetryFatal,
-				error: fmt.Errorf("failed to read piece data: %w", err),
+		var paddedReader io.ReadCloser
+		if txPiece != nil {
+			paddedReader = io.NopCloser(strings.NewReader(entry.InboundFilePath))
+		} else {
+			paddedReader, err = openReader(entry.InboundFilePath, entry.PieceSize.Unpadded())
+			if err != nil {
+				return &dealMakingError{
+					retry: types.DealRetryFatal,
+					error: fmt.Errorf("failed to read piece data: %w", err),
+				}
 			}
 		}
 
@@ -465,8 +516,10 @@ func (ddp *DirectDealsProvider) execDeal(ctx context.Context, entry *smtypes.Dir
 
 		// The deal has been handed off to the sealer, so we can remove the inbound file
 		if entry.CleanupData {
-			_ = os.Remove(entry.InboundFilePath)
-			ddp.dealLogger.Infow(dealUuid, "removed piece data from disk as deal has been added to a sector", "path", entry.InboundFilePath)
+			if txPiece == nil {
+				_ = os.Remove(entry.InboundFilePath)
+				ddp.dealLogger.Infow(dealUuid, "removed piece data from disk as deal has been added to a sector", "path", entry.InboundFilePath)
+			}
 		}
 	}
 
@@ -689,6 +742,8 @@ func (ddp *DirectDealsProvider) FailPausedDeal(ctx context.Context, id uuid.UUID
 func (ddp *DirectDealsProvider) indexAndAnnounce(ctx context.Context, entry *smtypes.DirectDeal) *dealMakingError {
 	// If this is Curio sealer then we should wait till sector finishes sealing
 	if ddp.config.Curio {
+		log.Infow("----indexAndAnnounce", "uuid", entry.SectorID, "checkpoint", entry.Checkpoint, "piececid", entry.PieceCID, "filepath", entry.InboundFilePath, "clientAddr", entry.Client, "allocationId", entry.AllocationID)
+
 		// Wait for sector to finish sealing
 		err := ddp.trackCurioSealing(entry.SectorID)
 		if err != nil {
@@ -696,10 +751,22 @@ func (ddp *DirectDealsProvider) indexAndAnnounce(ctx context.Context, entry *smt
 		}
 	}
 
+	txPiece, err := txcar.ParseTxPiece(entry.InboundFilePath)
+	if err != nil {
+		return &dealMakingError{
+			error: fmt.Errorf("indexAndAnnounce - failed to ParseTxPiece '%s': %w", entry.InboundFilePath, err),
+			retry: smtypes.DealRetryFatal,
+		}
+	}
+	updatedDealUuidStr := entry.ID.String()
+	if txPiece != nil {
+		updatedDealUuidStr = txcar.EncodeInDealUuidStr(*txPiece, updatedDealUuidStr)
+	}
+
 	// add deal to piece metadata store
 	ddp.dealLogger.Infow(entry.ID, "about to add direct deal for piece in LID")
 	if err := ddp.pd.AddDealForPiece(ctx, entry.PieceCID, model.DealInfo{
-		DealUuid:     entry.ID.String(),
+		DealUuid:     updatedDealUuidStr,
 		ChainDealID:  abi.DealID(entry.AllocationID), // Convert the type to avoid migration as underlying types are same
 		MinerAddr:    entry.Provider,
 		SectorID:     entry.SectorID,
