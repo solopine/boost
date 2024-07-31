@@ -104,6 +104,7 @@ require (
 	github.com/raulk/go-watchdog v1.3.0
 	github.com/rs/cors v1.7.0
 	github.com/schollz/progressbar/v3 v3.14.1
+	github.com/solopine/txcar v0.4.5
 	github.com/stretchr/testify v1.10.0
 	github.com/urfave/cli/v2 v2.25.7
 	github.com/whyrusleeping/base32 v0.0.0-20170828182744-c30ac30633cc
@@ -393,3 +394,4 @@ require (
 	lukechampine.com/blake3 v1.3.0 // indirect
 	rsc.io/tmplfunc v0.0.3 // indirect
 )
+replace github.com/filecoin-project/lotus => github.com/solopine/lotus v1.32.0-rc2-curio-1

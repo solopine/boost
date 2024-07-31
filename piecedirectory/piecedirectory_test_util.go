@@ -62,7 +62,7 @@ func testPieceDirectory(ctx context.Context, t *testing.T, bdsvc *svc.Service) {
 func testPieceDirectoryNotFound(ctx context.Context, t *testing.T, cl *client.Store) {
 	ctrl := gomock.NewController(t)
 	pr := mock_piecedirectory.NewMockPieceReader(ctrl)
-	pm := NewPieceDirectory(cl, pr, 1)
+	pm := NewPieceDirectory(cl, pr, nil, nil, 1)
 	pm.Start(ctx)
 
 	nonExistentPieceCid, err := cid.Parse("bafkqaaa")
@@ -106,7 +106,7 @@ func testBasicBlockstoreMethods(ctx context.Context, t *testing.T, cl *client.St
 	// Any calls to get a reader over data should return a reader over the random CAR file
 	pr := CreateMockPieceReader(t, carv1Reader)
 
-	pm := NewPieceDirectory(cl, pr, 1)
+	pm := NewPieceDirectory(cl, pr, nil, nil, 1)
 	pm.Start(ctx)
 	pieceCid := CalculateCommp(t, carv1Reader).PieceCID
 
@@ -232,7 +232,7 @@ func testImportedIndex(ctx context.Context, t *testing.T, cl *client.Store) {
 	// Verify that getting the size of a block works correctly:
 	// There is no size information in the index so the piece
 	// directory should re-build the index and then return the size.
-	pm := NewPieceDirectory(cl, pr, 1)
+	pm := NewPieceDirectory(cl, pr, nil, nil, 1)
 	pm.Start(ctx)
 	sz, err := pm.BlockstoreGetSize(ctx, rec.Cid)
 	require.NoError(t, err)
@@ -251,7 +251,7 @@ func testDataSegmentIndex(ctx context.Context, t *testing.T, cl *client.Store) {
 	require.NoError(t, err)
 	pieceCid := CalculateCommp(t, rdr).PieceCID
 
-	pm := NewPieceDirectory(cl, pr, 1)
+	pm := NewPieceDirectory(cl, pr, nil, nil, 1)
 	pm.Start(ctx)
 
 	// Add deal info for the piece - it doesn't matter what it is, the piece
@@ -415,7 +415,7 @@ func testFlaggingPieces(ctx context.Context, t *testing.T, cl *client.Store) {
 func testReIndexMultiSector(ctx context.Context, t *testing.T, cl *client.Store) {
 	ctrl := gomock.NewController(t)
 	pr := mock_piecedirectory.NewMockPieceReader(ctrl)
-	pm := NewPieceDirectory(cl, pr, 1)
+	pm := NewPieceDirectory(cl, pr, nil, nil, 1)
 	pm.Start(ctx)
 
 	// Create a random CAR file

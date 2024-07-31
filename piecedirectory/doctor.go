@@ -64,6 +64,10 @@ func (d *Doctor) Run(ctx context.Context) {
 				doclog.Warn("sector state manager not yet updated")
 				return nil
 			}
+			//for secId, secState := range lu.SectorStates {
+			//	doclog.Debugw("----lu.SectorStates", "secId", secId.Number, "secState", secState)
+			//}
+			doclog.Debugw("----lu.SectorStates", "secId.len", len(lu.SectorStates))
 
 			head, err := d.fullnodeApi.ChainHead(ctx)
 			if err != nil {
@@ -86,6 +90,10 @@ func (d *Doctor) Run(ctx context.Context) {
 			if err != nil {
 				return fmt.Errorf("getting claims for the miner %s: %w", d.maddr, err)
 			}
+			//for _, claim := range claims {
+			//	doclog.Debugw("StateGetClaims", "claim", claim)
+			//}
+			doclog.Debugw("----StateGetClaims", "claims.len", len(claims))
 
 			for _, pcid := range pcids {
 				err := d.checkPiece(ctx, pcid, lu, head, claims)
@@ -118,7 +126,7 @@ func (d *Doctor) Run(ctx context.Context) {
 }
 
 func (d *Doctor) checkPiece(ctx context.Context, pieceCid cid.Cid, lu *sectorstatemgr.SectorStateUpdates, head *types.TipSet, claims map[verifregtypes.ClaimId]verifregtypes.Claim) error {
-	defer func(start time.Time) { log.Debugw("checkPiece processing", "took", time.Since(start)) }(time.Now())
+	// defer func(start time.Time) { log.Debugw("checkPiece processing", "took", time.Since(start)) }(time.Now())
 
 	// Check if piece belongs to an active sector
 	md, err := d.store.GetPieceMetadata(ctx, pieceCid)
@@ -185,11 +193,15 @@ func (d *Doctor) checkPiece(ctx context.Context, pieceCid cid.Cid, lu *sectorsta
 		found := false
 		for _, dealId := range chainDeals {
 			if dealId.IsDirectDeal {
-				doclog.Debugw("checking state for direct deal", "piece", pieceCid, "allocation", dealId.ChainDealID)
+				//doclog.Debugw("checking state for direct deal", "piece", pieceCid, "allocation", dealId.ChainDealID)
 				for _, v := range claims {
 					if v.Sector == dealId.SectorID {
 						found = true
+						break
 					}
+				}
+				if found {
+					break
 				}
 			} else {
 				doclog.Debugw("checking state for market deal", "piece", pieceCid, "deal", dealId.ChainDealID)
@@ -253,7 +265,7 @@ func (d *Doctor) checkPiece(ctx context.Context, pieceCid cid.Cid, lu *sectorsta
 	}
 
 	// There are no known issues with the piece, so unflag it
-	doclog.Debugw("unflagging piece", "piece", pieceCid)
+	//doclog.Debugw("unflagging piece", "piece", pieceCid)
 	err = d.store.UnflagPiece(ctx, pieceCid, d.maddr)
 	if err != nil {
 		return fmt.Errorf("failed to unflag piece %s: %w", pieceCid, err)

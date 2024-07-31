@@ -79,6 +79,7 @@ func (sa *sectorAccessor) UnsealSectorAt(ctx context.Context, sectorID abi.Secto
 }
 
 func (sa *sectorAccessor) IsUnsealed(ctx context.Context, sectorID abi.SectorNumber, offset abi.UnpaddedPieceSize, length abi.UnpaddedPieceSize) (bool, error) {
+	log.Infow("----sectorAccessor.IsUnsealed", "sectorID", sectorID, "offset", offset, "length", length)
 	si, err := sa.sectorsStatus(ctx, sectorID, true)
 	if err != nil {
 		return false, xerrors.Errorf("failed to get sector info: %w", err)
@@ -133,4 +134,27 @@ func (sa *sectorAccessor) sectorsStatus(ctx context.Context, sid abi.SectorNumbe
 	sInfo.Early = ex.Early
 
 	return sInfo, nil
+}
+
+func (sa *sectorAccessor) ReadTxPieceRecords(ctx context.Context, sectorID abi.SectorNumber) (io.ReadCloser, error) {
+	log.Infow("----ReadTxPieceRecords", "sectorID", sectorID)
+	si, err := sa.sectorsStatus(ctx, sectorID, true)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get sector info: %w", err)
+	}
+
+	mid, err := address.IDFromAddress(sa.maddr)
+	if err != nil {
+		return nil, err
+	}
+
+	ref := storiface.SectorRef{
+		ID: abi.SectorID{
+			Miner:  abi.ActorID(mid),
+			Number: sectorID,
+		},
+		ProofType: si.SealProof,
+	}
+
+	return sa.pp.ReadTxPieceRecords(ctx, ref)
 }
