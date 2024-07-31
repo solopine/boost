@@ -687,6 +687,7 @@ func addPieceWithRetry(ctx context.Context, pieceAdder smtypes.PieceAdder, piece
 	info, err := pieceAdder.SectorAddPieceToAny(ctx, pieceSize, pieceData, sdInfo)
 	curTime := build.Clock.Now()
 	for err != nil && build.Clock.Since(curTime) < addPieceRetryTimeout {
+		log.Errorw("----addPieceWithRetry", "sectorNum", info.Sector, "offset", info.Offset, "err", err)
 		// Check if the error was because there are too many sectors sealing
 		if !errors.Is(err, sealing.ErrTooManySectorsSealing) {
 			// There was some other error, return it

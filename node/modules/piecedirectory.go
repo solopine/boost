@@ -2,6 +2,7 @@ package modules
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -121,12 +122,13 @@ func NewMultiminerSectorAccessor(cfg *config.Boost) func(full v1api.FullNode) *l
 	}
 }
 
-func NewPieceDirectory(cfg *config.Boost) func(lc fx.Lifecycle, maddr dtypes.MinerAddress, store *bdclient.Store, sa *lib.MultiMinerAccessor) *piecedirectory.PieceDirectory {
-	return func(lc fx.Lifecycle, maddr dtypes.MinerAddress, store *bdclient.Store, sa *lib.MultiMinerAccessor) *piecedirectory.PieceDirectory {
+func NewPieceDirectory(cfg *config.Boost) func(lc fx.Lifecycle, maddr dtypes.MinerAddress, store *bdclient.Store, sa *lib.MultiMinerAccessor, db *sql.DB) *piecedirectory.PieceDirectory {
+	return func(lc fx.Lifecycle, maddr dtypes.MinerAddress, store *bdclient.Store, sa *lib.MultiMinerAccessor, db *sql.DB) *piecedirectory.PieceDirectory {
 
 		// Create the piece directory implementation
 		pdctx, cancel := context.WithCancel(context.Background())
 		pd := piecedirectory.NewPieceDirectory(store, sa,
+			db,
 			cfg.LocalIndexDirectory.ParallelAddIndexLimit,
 			piecedirectory.WithAddIndexConcurrency(cfg.LocalIndexDirectory.AddIndexConcurrency))
 		lc.Append(fx.Hook{

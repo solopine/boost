@@ -100,7 +100,8 @@ BINS+=boost
 
 boostd: $(BUILD_DEPS)
 	rm -f boostd
-	$(GOCC) build $(GOFLAGS) -o boostd ./cmd/boostd
+	#$(GOCC) build $(GOFLAGS) -gcflags "all=-N -l" -o boostd ./cmd/boostd
+	$(GOCC) build $(GOFLAGS) -gcflags "all=-N -l" -o boostd ./cmd/boostd
 .PHONY: boostd
 BINS+=boostd
 

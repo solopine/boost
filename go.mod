@@ -102,6 +102,7 @@ require (
 	github.com/raulk/go-watchdog v1.3.0
 	github.com/rs/cors v1.7.0
 	github.com/schollz/progressbar/v3 v3.14.1
+	github.com/solopine/txcar v0.0.20
 	github.com/stretchr/testify v1.9.0
 	github.com/urfave/cli/v2 v2.25.7
 	github.com/whyrusleeping/base32 v0.0.0-20170828182744-c30ac30633cc
@@ -392,3 +393,4 @@ require (
 )
 
 replace github.com/KarpelesLab/reflink => github.com/magik6k/reflink v1.0.2-patch1
+replace github.com/filecoin-project/lotus => github.com/solopine/lotus v1.30.0-rc2-curio-1

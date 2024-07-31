@@ -209,7 +209,7 @@ func action(cctx *cli.Context) error {
 			return fmt.Errorf("connecting to local index directory service: %w", err)
 		}
 		pr := &piecedirectory.SectorAccessorAsPieceReader{SectorAccessor: sa}
-		pd = piecedirectory.NewPieceDirectory(cl, pr, cctx.Int("add-index-throttle"), piecedirectory.WithAddIndexConcurrency(cctx.Int("add-index-concurrency")))
+		pd = piecedirectory.NewPieceDirectory(cl, pr, nil, cctx.Int("add-index-throttle"), piecedirectory.WithAddIndexConcurrency(cctx.Int("add-index-concurrency")))
 		pd.Start(ctx)
 	}
 
