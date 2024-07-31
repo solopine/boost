@@ -254,7 +254,7 @@ var runCmd = &cli.Command{
 		defer sa.Close()
 
 		// Create the server API
-		pd := piecedirectory.NewPieceDirectory(cl, sa, cctx.Int("add-index-throttle"),
+		pd := piecedirectory.NewPieceDirectory(cl, sa, nil, nil, cctx.Int("add-index-throttle"),
 			piecedirectory.WithAddIndexConcurrency(cctx.Int("add-index-concurrency")))
 
 		opts := &HttpServerOptions{

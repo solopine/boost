@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/filecoin-project/boost/txcar"
+	txcarlib "github.com/solopine/txcar/txcar"
 	"io"
 	"os"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/filecoin-project/boost/extern/boostd-data/model"
@@ -94,6 +97,14 @@ func (p *Provider) execDeal(deal *smtypes.ProviderDealState, dh *dealHandler) (d
 		}
 	}()
 
+	txPiece, err := txcar.ParseTxPiece(deal.InboundFilePath)
+	if err != nil {
+		return &dealMakingError{
+			error: fmt.Errorf("failed to ParseTxPiece '%s': %w", deal.InboundFilePath, err),
+			retry: smtypes.DealRetryFatal,
+		}
+	}
+
 	// If the deal has not yet been handed off to the sealer
 	if deal.Checkpoint < dealcheckpoints.AddedPiece {
 		transferType := "downloaded file"
@@ -102,15 +113,22 @@ func (p *Provider) execDeal(deal *smtypes.ProviderDealState, dh *dealHandler) (d
 		}
 
 		// Read the bytes received from the downloaded / imported file
-		fi, err := os.Stat(deal.InboundFilePath)
-		if err != nil {
-			return &dealMakingError{
-				error: fmt.Errorf("failed to get size of %s '%s': %w", transferType, deal.InboundFilePath, err),
-				retry: smtypes.DealRetryFatal,
+		var carSize int64
+		if txPiece != nil {
+			carSize = int64(txPiece.CarSize)
+		} else {
+			fi, err := os.Stat(deal.InboundFilePath)
+			if err != nil {
+				return &dealMakingError{
+					error: fmt.Errorf("failed to get size of %s '%s': %w", transferType, deal.InboundFilePath, err),
+					retry: smtypes.DealRetryFatal,
+				}
 			}
+			carSize = fi.Size()
 		}
-		deal.NBytesReceived = fi.Size()
-		p.dealLogger.Infow(deal.DealUuid, "size of "+transferType, "filepath", deal.InboundFilePath, "size", fi.Size())
+
+		deal.NBytesReceived = carSize
+		p.dealLogger.Infow(deal.DealUuid, "size of "+transferType, "filepath", deal.InboundFilePath, "size", carSize)
 	} else if !deal.IsOffline {
 		// For online deals where the deal has already been handed to the sealer,
 		// the inbound file could already have been removed and in that case,
@@ -120,7 +138,7 @@ func (p *Provider) execDeal(deal *smtypes.ProviderDealState, dh *dealHandler) (d
 	}
 
 	// Execute the deal synchronously
-	if derr := p.execDealUptoAddPiece(dh.providerCtx, deal, dh); derr != nil {
+	if derr := p.execDealUptoAddPiece(dh.providerCtx, deal, dh, txPiece); derr != nil {
 		return derr
 	}
 
@@ -142,7 +160,7 @@ func (p *Provider) execDeal(deal *smtypes.ProviderDealState, dh *dealHandler) (d
 	return nil
 }
 
-func (p *Provider) execDealUptoAddPiece(ctx context.Context, deal *types.ProviderDealState, dh *dealHandler) *dealMakingError {
+func (p *Provider) execDealUptoAddPiece(ctx context.Context, deal *types.ProviderDealState, dh *dealHandler, txPiece *txcarlib.TxPiece) *dealMakingError {
 	pub := dh.Publisher
 	// publish "new deal" event
 	p.fireEventDealNew(deal)
@@ -175,12 +193,24 @@ func (p *Provider) execDealUptoAddPiece(ctx context.Context, deal *types.Provide
 		dh.setCancelTransferResponse(errors.New("transfer already complete"))
 		p.dealLogger.Infow(deal.DealUuid, "deal data-transfer can no longer be cancelled")
 	} else if deal.Checkpoint < dealcheckpoints.Transferred {
-		// verify CommP matches for an offline deal
-		if err := p.verifyCommP(deal); err != nil {
-			err.error = fmt.Errorf("error when matching commP for imported data for offline deal: %w", err)
-			return err
+		if txPiece == nil {
+			// verify CommP matches for an offline deal
+			if err := p.verifyCommP(deal); err != nil {
+				err.error = fmt.Errorf("error when matching commP for imported data for offline deal: %w", err)
+				return err
+			}
+			p.dealLogger.Infow(deal.DealUuid, "commp matched successfully for imported data for offline deal")
+		} else {
+			// add row to tx_db
+			err := txcar.AddTxPieceToDb(ctx, p.db, txPiece)
+			if err != nil {
+				return &dealMakingError{
+					retry: smtypes.DealRetryFatal,
+					error: fmt.Errorf("offline deal failed to persist txPiece: %w", err),
+				}
+			}
+			p.dealLogger.Infow(deal.DealUuid, "AddTxPieceToDb for txcar offline.", "txPiece", txPiece)
 		}
-		p.dealLogger.Infow(deal.DealUuid, "commp matched successfully for imported data for offline deal")
 
 		// update checkpoint
 		if derr := p.updateCheckpoint(pub, deal, dealcheckpoints.Transferred); derr != nil {
@@ -211,7 +241,7 @@ func (p *Provider) execDealUptoAddPiece(ctx context.Context, deal *types.Provide
 
 	// AddPiece
 	if deal.Checkpoint < dealcheckpoints.AddedPiece {
-		if err := p.addPiece(ctx, pub, deal); err != nil {
+		if err := p.addPiece(ctx, pub, deal, txPiece); err != nil {
 			err.error = fmt.Errorf("failed to add piece: %w", err.error)
 			return err
 		}
@@ -222,8 +252,12 @@ func (p *Provider) execDealUptoAddPiece(ctx context.Context, deal *types.Provide
 
 	// as deal has already been handed to the sealer, we can remove the inbound file and reclaim the tagged space
 	if deal.CleanupData {
-		_ = os.Remove(deal.InboundFilePath)
-		p.dealLogger.Infow(deal.DealUuid, "removed piece data from disk as deal has been added to a sector", "path", deal.InboundFilePath)
+		if txPiece == nil {
+			_ = os.Remove(deal.InboundFilePath)
+			p.dealLogger.Infow(deal.DealUuid, "removed piece data from disk as deal has been added to a sector", "path", deal.InboundFilePath)
+		} else {
+			p.dealLogger.Infow(deal.DealUuid, "skip remove piece data for txpiece", "path", deal.InboundFilePath)
+		}
 	}
 	if err := p.untagStorageSpaceAfterSealing(ctx, deal); err != nil {
 		// If there's an error untagging storage space we should still try to continue,
@@ -235,7 +269,7 @@ func (p *Provider) execDealUptoAddPiece(ctx context.Context, deal *types.Provide
 
 	// Index and Announce deal
 	if deal.Checkpoint < dealcheckpoints.IndexedAndAnnounced {
-		if err := p.indexAndAnnounce(ctx, pub, deal); err != nil {
+		if err := p.indexAndAnnounce(ctx, pub, deal, txPiece); err != nil {
 			err.error = fmt.Errorf("failed to add index and announce deal: %w", err.error)
 			return err
 		}
@@ -524,7 +558,7 @@ func (p *Provider) publishDeal(ctx context.Context, pub event.Emitter, deal *typ
 }
 
 // addPiece hands off a published deal for sealing and commitment in a sector
-func (p *Provider) addPiece(ctx context.Context, pub event.Emitter, deal *types.ProviderDealState) *dealMakingError {
+func (p *Provider) addPiece(ctx context.Context, pub event.Emitter, deal *types.ProviderDealState, txPiece *txcarlib.TxPiece) *dealMakingError {
 	// Check that the deal's start epoch hasn't already elapsed
 	if derr := p.checkDealProposalStartEpoch(deal); derr != nil {
 		return derr
@@ -533,11 +567,18 @@ func (p *Provider) addPiece(ctx context.Context, pub event.Emitter, deal *types.
 	p.dealLogger.Infow(deal.DealUuid, "add piece called")
 
 	proposal := deal.ClientDealProposal.Proposal
-	paddedReader, err := openReader(deal.InboundFilePath, proposal.PieceSize.Unpadded())
-	if err != nil {
-		return &dealMakingError{
-			retry: types.DealRetryFatal,
-			error: fmt.Errorf("failed to read piece data: %w", err),
+
+	var err error
+	var paddedReader io.ReadCloser
+	if txPiece != nil {
+		paddedReader = io.NopCloser(strings.NewReader(deal.InboundFilePath))
+	} else {
+		paddedReader, err = openReader(deal.InboundFilePath, proposal.PieceSize.Unpadded())
+		if err != nil {
+			return &dealMakingError{
+				retry: types.DealRetryFatal,
+				error: fmt.Errorf("failed to read piece data: %w", err),
+			}
 		}
 	}
 
@@ -601,9 +642,12 @@ func openReader(filePath string, pieceSize abi.UnpaddedPieceSize) (io.ReadCloser
 	}, nil
 }
 
-func (p *Provider) indexAndAnnounce(ctx context.Context, pub event.Emitter, deal *types.ProviderDealState) *dealMakingError {
+func (p *Provider) indexAndAnnounce(ctx context.Context, pub event.Emitter, deal *types.ProviderDealState, txPiece *txcarlib.TxPiece) *dealMakingError {
 	// If this is Curio sealer then we should wait till sector finishes sealing
 	if p.config.Curio {
+		log.Infow("----indexAndAnnounce", "uuid", deal.SectorID, "checkpoint", deal.Checkpoint, "piececid",
+			deal.ClientDealProposal.Proposal.PieceCID, "filepath", deal.InboundFilePath, "clientAddr", deal.ClientDealProposal.Proposal.Client)
+
 		// Wait for sector to finish sealing
 		err := p.trackCurioSealing(deal.SectorID)
 		if err != nil {
@@ -611,11 +655,16 @@ func (p *Provider) indexAndAnnounce(ctx context.Context, pub event.Emitter, deal
 		}
 	}
 
+	updatedDealUuidStr := deal.DealUuid.String()
+	if txPiece != nil {
+		updatedDealUuidStr = txcar.EncodeInDealUuidStr(*txPiece, updatedDealUuidStr)
+	}
+
 	// add deal to piece metadata store
 	pc := deal.ClientDealProposal.Proposal.PieceCID
 	p.dealLogger.Infow(deal.DealUuid, "about to add deal for piece in LID")
 	if err := p.piecedirectory.AddDealForPiece(ctx, pc, model.DealInfo{
-		DealUuid:     deal.DealUuid.String(),
+		DealUuid:     updatedDealUuidStr,
 		ChainDealID:  deal.ChainDealID,
 		MinerAddr:    p.Address,
 		SectorID:     deal.SectorID,

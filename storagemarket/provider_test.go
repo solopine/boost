@@ -1632,7 +1632,7 @@ func NewHarness(t *testing.T, opts ...harnessOpt) *ProviderHarness {
 	askStore.SetAsk(pc.price, pc.verifiedPrice, pc.minPieceSize, pc.maxPieceSize)
 
 	pdctx, cancel := context.WithCancel(context.Background())
-	pm := piecedirectory.NewPieceDirectory(bdclientutil.NewTestStore(pdctx), minerStub.MockPieceReader, 1)
+	pm := piecedirectory.NewPieceDirectory(bdclientutil.NewTestStore(pdctx), minerStub.MockPieceReader, nil, nil, 1)
 	pm.Start(pdctx)
 	t.Cleanup(cancel)
 
@@ -1718,7 +1718,7 @@ func (h *ProviderHarness) shutdownAndCreateNewProvider(t *testing.T, opts ...har
 
 	// Recreate the piece directory because we need to pass it the recreated mock piece reader
 	pdctx, cancel := context.WithCancel(context.Background())
-	pm := piecedirectory.NewPieceDirectory(bdclientutil.NewTestStore(pdctx), h.MinerStub.MockPieceReader, 1)
+	pm := piecedirectory.NewPieceDirectory(bdclientutil.NewTestStore(pdctx), h.MinerStub.MockPieceReader, nil, nil, 1)
 	pm.Start(pdctx)
 	t.Cleanup(cancel)
 

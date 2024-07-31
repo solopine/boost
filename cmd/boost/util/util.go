@@ -174,16 +174,16 @@ func CreateExtendClaimMsg(ctx context.Context, api api.Gateway, pcm map[verifreg
 				claim := c
 				// If the client is not the original client - burn datacap
 				if claim.Client != wid {
-					// The new duration should be greater than the original deal duration and claim should not already be expired
-					if head.Height()+tmax-claim.TermStart > claim.TermMax-claim.TermStart && claim.TermStart+claim.TermMax > head.Height() {
-						req := verifreg13.ClaimExtensionRequest{
-							Claim:    verifreg13.ClaimId(claimID),
-							Provider: abi.ActorID(mid),
-							TermMax:  head.Height() + tmax - claim.TermStart,
-						}
-						newClaims[req] = big.NewInt(int64(claim.Size))
-						rDataCap.Add(big.NewInt(int64(claim.Size)).Int, rDataCap.Int)
-					}
+					//// The new duration should be greater than the original deal duration and claim should not already be expired
+					//if head.Height()+tmax-claim.TermStart > claim.TermMax-claim.TermStart && claim.TermStart+claim.TermMax > head.Height() {
+					//	req := verifreg13.ClaimExtensionRequest{
+					//		Claim:    verifreg13.ClaimId(claimID),
+					//		Provider: abi.ActorID(mid),
+					//		TermMax:  head.Height() + tmax - claim.TermStart,
+					//	}
+					//	newClaims[req] = big.NewInt(int64(claim.Size))
+					//	rDataCap.Add(big.NewInt(int64(claim.Size)).Int, rDataCap.Int)
+					//}
 					// If new duration shorter than the original duration then do nothing
 					continue
 				}

@@ -32,3 +32,7 @@ type PieceDirMetadata struct {
 	model.Metadata
 	Indexing bool
 }
+
+type TxPieceRecordsReader interface {
+	ReadTxPieceRecords(ctx context.Context, minerAddr address.Address, sectorID abi.SectorNumber) (io.ReadCloser, error)
+}

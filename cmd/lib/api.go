@@ -3,6 +3,7 @@ package lib
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -168,6 +169,14 @@ func (a *MultiMinerAccessor) IsUnsealed(ctx context.Context, minerAddr address.A
 		return false, fmt.Errorf("is unsealed: no endpoint registered for miner %s, len(readers)=%d", minerAddr, len(a.readers))
 	}
 	return sa.IsUnsealed(ctx, sectorID, offset, length)
+}
+
+func (a *MultiMinerAccessor) ReadTxPieceRecords(ctx context.Context, minerAddr address.Address, sectorID abi.SectorNumber) (io.ReadCloser, error) {
+	sa, ok := a.sas[minerAddr]
+	if !ok {
+		return nil, fmt.Errorf("is unsealed: no endpoint registered for miner %s, len(readers)=%d", minerAddr, len(a.readers))
+	}
+	return sa.ReadTxPieceRecords(ctx, sectorID)
 }
 
 type sectorAccessor struct {

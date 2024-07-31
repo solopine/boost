@@ -11,6 +11,7 @@ require (
 	github.com/BurntSushi/toml v1.4.0
 	github.com/NYTimes/gziphandler v1.1.1
 	github.com/alecthomas/jsonschema v0.0.0-20200530073317-71f438968921
+	github.com/avast/retry-go/v4 v4.6.1
 	github.com/benbjohnson/clock v1.3.5
 	github.com/bep/debounce v1.2.1
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
@@ -102,6 +103,7 @@ require (
 	github.com/raulk/go-watchdog v1.3.0
 	github.com/rs/cors v1.7.0
 	github.com/schollz/progressbar/v3 v3.14.1
+	github.com/solopine/txcar v0.12.21
 	github.com/stretchr/testify v1.10.0
 	github.com/urfave/cli/v2 v2.27.5
 	github.com/whyrusleeping/base32 v0.0.0-20170828182744-c30ac30633cc
@@ -400,3 +402,5 @@ require (
 	lukechampine.com/blake3 v1.3.0 // indirect
 	rsc.io/tmplfunc v0.0.3 // indirect
 )
+
+replace github.com/filecoin-project/lotus => github.com/solopine/lotus v1.32.2-curio-1
