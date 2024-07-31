@@ -56,6 +56,7 @@ export function Pagination({basePath, cursor, pageNum, moreRows, totalCount, row
                             <option value={25}>25 pp</option>
                             <option value={50}>50 pp</option>
                             <option value={100}>100 pp</option>
+                            <option value={1000}>1000 pp</option>
                         </select>
                     </div>
                 ) : null}

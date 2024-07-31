@@ -27,10 +27,12 @@ type CachingSectorAccessor struct {
 }
 
 func (c *CachingSectorAccessor) IsUnsealed(ctx context.Context, sectorID abi.SectorNumber, offset abi.UnpaddedPieceSize, length abi.UnpaddedPieceSize) (bool, error) {
+	log.Infow("----CachingSectorAccessor.IsUnsealed", "sectorID", sectorID, "offset", offset, "length", length)
 	// Check the cache for this sector
 	cacheKey := fmt.Sprintf("%d", sectorID)
 	val, err := c.cache.Get(cacheKey)
 	if err == nil {
+		log.Infow("----CachingSectorAccessor.IsUnsealed.got from cache", "sectorID", sectorID, "offset", offset, "length", length, "val.(bool)", val.(bool))
 		return val.(bool), nil
 	}
 
@@ -45,11 +47,13 @@ func (c *CachingSectorAccessor) IsUnsealed(ctx context.Context, sectorID abi.Sec
 	// for the lock
 	val, err = c.cache.Get(cacheKey)
 	if err == nil {
+		log.Infow("----CachingSectorAccessor.IsUnsealed.2.got from cache", "sectorID", sectorID, "offset", offset, "length", length, "val.(bool)", val.(bool))
 		return val.(bool), nil
 	}
 
 	// Nothing in the cache, so make the call to IsUnsealed
 	isUnsealed, err := c.SectorAccessor.IsUnsealed(ctx, sectorID, offset, length)
+	log.Infow("----CachingSectorAccessor.IsUnsealed.got from remote", "sectorID", sectorID, "offset", offset, "length", length, "isUnsealed", isUnsealed, "err", err)
 	if err == nil {
 		// Save the results in the cache
 		_ = c.cache.Set(cacheKey, isUnsealed)

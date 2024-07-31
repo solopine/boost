@@ -3,6 +3,7 @@ package types
 import (
 	"context"
 	"errors"
+	"github.com/solopine/txcar/txcar"
 	"strings"
 	"time"
 
@@ -65,6 +66,7 @@ type Service interface {
 	UnflagPiece(ctx context.Context, pieceCid cid.Cid, maddr address.Address) error
 	FlaggedPiecesList(ctx context.Context, filter *FlaggedPiecesListFilter, cursor *time.Time, offset int, limit int) ([]model.FlaggedPiece, error)
 	FlaggedPiecesCount(ctx context.Context, filter *FlaggedPiecesListFilter) (int, error)
+	GetTxPiece(context.Context, cid.Cid) (*txcar.TxPiece, error)
 }
 
 type ServiceImpl interface {

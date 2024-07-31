@@ -111,7 +111,7 @@ func generatePieceCommitment(ctx context.Context, commpCalc smtypes.CommpCalcula
 	if pi.Size < pieceSize {
 		// pad the data so that it fills the piece
 		rawPaddedCommp, err := commp.PadCommP(
-			// we know how long a pieceCid "hash" is, just blindly extract the trailing 32 bytes
+			// we know how long a PieceCid "hash" is, just blindly extract the trailing 32 bytes
 			pi.PieceCID.Hash()[len(pi.PieceCID.Hash())-32:],
 			uint64(pi.Size),
 			uint64(pieceSize),
@@ -164,7 +164,7 @@ func remoteCommP(ctx context.Context, commpCalc smtypes.CommpCalculator, filepat
 	}
 
 	// The commp calculation requires the data to be of length
-	// pieceSize.Unpadded(), so add zeros until it reaches that size
+	// PieceSize.Unpadded(), so add zeros until it reaches that size
 	pr, numBytes := padreader.New(rd, uint64(st.Size()))
 	log.Debugw("computing remote commp", "size", st.Size(), "padded-size", numBytes)
 	pi, err := commpCalc.ComputeDataCid(ctx, numBytes, pr)

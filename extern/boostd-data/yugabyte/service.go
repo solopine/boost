@@ -4,6 +4,10 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"github.com/filecoin-project/boost/txcar"
+	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/google/uuid"
+	txcarlib "github.com/solopine/txcar/txcar"
 	"sync"
 	"time"
 
@@ -157,7 +161,20 @@ func (s *Store) AddDealForPiece(ctx context.Context, pieceCid cid.Cid, dealInfo 
 		}
 	}()
 
-	err := s.createPieceMetadata(ctx, pieceCid)
+	txPiece, realDealUuidStr, err := txcar.DecodeFromDealUuidStr(dealInfo.DealUuid)
+	if err != nil {
+		return err
+	}
+	if txPiece != nil {
+		// do txpiece
+		err := s.addTxPieceToIdxDb(ctx, *txPiece)
+		if err != nil {
+			return fmt.Errorf("AddTxPieceToIdxDb - inserting deal %s for piece %s", dealInfo.DealUuid, pieceCid)
+		}
+	}
+	dealInfo.DealUuid = realDealUuidStr
+
+	err = s.createPieceMetadata(ctx, pieceCid)
 	if err != nil {
 		return err
 	}
@@ -204,11 +221,23 @@ func (s *Store) GetOffsetSize(ctx context.Context, pieceCid cid.Cid, hash mh.Mul
 	}()
 
 	var offset, size uint64
-	qry := `SELECT BlockOffset, BlockSize FROM PieceBlockOffsetSize WHERE PieceCid = ? AND PayloadMultihash = ?`
-	err := s.session.Query(qry, pieceCid.Bytes(), hash).WithContext(ctx).Scan(&offset, &size)
+
+	txPiece, err := s.getTxPieceFromIdxDb(ctx, pieceCid)
 	if err != nil {
-		err = normalizePieceCidError(pieceCid, err)
-		return nil, fmt.Errorf("getting offset / size: %w", err)
+		return nil, err
+	}
+	if txPiece != nil && txPiece.Version == txcarlib.V1 {
+		offset, size, err = s.getTxOffsetSizeV1(ctx, hash, txPiece.Version)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		qry := `SELECT BlockOffset, BlockSize FROM PieceBlockOffsetSize WHERE PieceCid = ? AND PayloadMultihash = ?`
+		err := s.session.Query(qry, pieceCid.Bytes(), hash).WithContext(ctx).Scan(&offset, &size)
+		if err != nil {
+			err = normalizePieceCidError(pieceCid, err)
+			return nil, fmt.Errorf("getting offset / size: %w", err)
+		}
 	}
 
 	failureMetrics = false
@@ -330,6 +359,20 @@ func (s *Store) PiecesContainingMultihash(ctx context.Context, m mh.Multihash) (
 		}
 	}()
 
+	log.Infow("----PiecesContainingMultihash", "m", m.String())
+	// first check if it is txcar
+	{
+		txPcids, err := s.TxPiecesContainingMultihash(ctx, m)
+		if err != nil {
+			return nil, err
+		}
+		if txPcids != nil {
+			failureMetrics = false
+			return txPcids, nil
+		}
+		// not txcar
+	}
+
 	// Get all piece cids referred to by the multihash
 	pcids := make([]cid.Cid, 0, 1)
 	var bz []byte
@@ -370,8 +413,23 @@ func (s *Store) GetIndex(ctx context.Context, pieceCid cid.Cid) (<-chan types.In
 		}
 	}()
 
-	qry := `SELECT PayloadMultihash, BlockOffset, BlockSize FROM PieceBlockOffsetSize WHERE PieceCid = ?`
-	iter := s.session.Query(qry, pieceCid.Bytes()).WithContext(ctx).Iter()
+	log.Infow("----GetIndex", "pieceCid", pieceCid.String())
+	txPiece, err := s.getTxPieceFromIdxDb(ctx, pieceCid)
+	if err != nil {
+		return nil, err
+	}
+
+	var iter *gocql.Iter
+	if txPiece != nil && txPiece.Version == txcarlib.V1 {
+		log.Infow("----GetIndex", "txPiece", txPiece)
+		iter, err = s.getTxOffsetSizeIter(ctx, txPiece.Version)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		qry := `SELECT PayloadMultihash, BlockOffset, BlockSize FROM PieceBlockOffsetSize WHERE PieceCid = ?`
+		iter = s.session.Query(qry, pieceCid.Bytes()).WithContext(ctx).Iter()
+	}
 
 	scannedRecordCh := make(chan struct{}, 1)
 	records := make(chan types.IndexRecord)
@@ -395,7 +453,6 @@ func (s *Store) GetIndex(ctx context.Context, pieceCid cid.Cid) (<-chan types.In
 				records <- types.IndexRecord{Error: err}
 				return
 			}
-
 			records <- types.IndexRecord{
 				Record: model.Record{
 					Cid: cid.NewCidV1(cid.Raw, pmh),
@@ -548,6 +605,17 @@ func (s *Store) addMultihashesToPieces(ctx context.Context, pieceCid cid.Cid, re
 	ctx, span := tracing.Tracer.Start(ctx, "store.add_index.payloadpiece")
 	defer span.End()
 
+	txPiece, err := s.getTxPieceFromIdxDb(ctx, pieceCid)
+	if err != nil {
+		return err
+	}
+	if txPiece != nil && txPiece.Version == txcarlib.V1 {
+		// for txpiece v1, data already in db
+		log.Debugw("addMultihashesToPieces for txPiece", "txPiece", txPiece)
+		progress(1.0)
+		return nil
+	}
+
 	insertPieceOffsetsQry := `INSERT INTO PayloadToPieces (PayloadMultihash, PieceCid) VALUES (?, ?)`
 	pieceCidBytes := pieceCid.Bytes()
 
@@ -611,7 +679,7 @@ func (s *Store) addMultihashesToPieces(ctx context.Context, pieceCid cid.Cid, re
 		})
 	}
 
-	err := eg.Wait()
+	err = eg.Wait()
 	if err != nil {
 		return err
 	}
@@ -621,6 +689,17 @@ func (s *Store) addMultihashesToPieces(ctx context.Context, pieceCid cid.Cid, re
 func (s *Store) addPieceInfos(ctx context.Context, pieceCid cid.Cid, recs []model.Record, progress func(addProgress float64)) error {
 	ctx, span := tracing.Tracer.Start(ctx, "store.add_index.pieceinfo")
 	defer span.End()
+
+	txPiece, err := s.getTxPieceFromIdxDb(ctx, pieceCid)
+	if err != nil {
+		return err
+	}
+	if txPiece != nil && txPiece.Version == txcarlib.V1 {
+		// for txpiece, data already in db
+		log.Debugw("addPieceInfos for txPiece", "txPiece", txPiece)
+		progress(1.0)
+		return nil
+	}
 
 	insertPieceOffsetsQry := `INSERT INTO PieceBlockOffsetSize (PieceCid, PayloadMultihash, BlockOffset, BlockSize) VALUES (?, ?, ?, ?)`
 	pieceCidBytes := pieceCid.Bytes()
@@ -686,7 +765,7 @@ func (s *Store) addPieceInfos(ctx context.Context, pieceCid cid.Cid, recs []mode
 		})
 	}
 
-	err := eg.Wait()
+	err = eg.Wait()
 	if err != nil {
 		return err
 	}
@@ -834,6 +913,20 @@ func (s *Store) RemoveDealForPiece(ctx context.Context, pieceCid cid.Cid, dealId
 		return nil
 	}
 
+	txPiece, err := s.getTxPieceFromIdxDb(ctx, pieceCid)
+	if err != nil {
+		return err
+	}
+	if txPiece != nil && txPiece.Version == txcarlib.V1 {
+		// for txpiece, need remove piece
+		log.Debugw("RemoveDealForPiece for txPiece", "txPiece", txPiece)
+		qry = `DELETE FROM TxCarPieces WHERE PieceCid = ?`
+		err = s.session.Query(qry, txPiece.PieceCid.String()).WithContext(ctx).Exec()
+		if err != nil {
+			return fmt.Errorf("remove TxCarPieces for piece %s: %w", txPiece.PieceCid.String(), err)
+		}
+	}
+
 	err = s.RemoveIndexes(ctx, pieceCid)
 	if err != nil {
 		return fmt.Errorf("removing deal: %w", err)
@@ -891,6 +984,17 @@ func (s *Store) RemoveIndexes(ctx context.Context, pieceCid cid.Cid) error {
 		}
 	}()
 
+	txPiece, err := s.getTxPieceFromIdxDb(ctx, pieceCid)
+	if err != nil {
+		return err
+	}
+	if txPiece != nil && txPiece.Version == txcarlib.V1 {
+		// for txpiece, don't need remove anything
+		log.Debugw("RemoveIndexes for txPiece", "txPiece", txPiece)
+		failureMetrics = false
+		return nil
+	}
+
 	// Get multihashes for piece
 	recs, err := s.GetIndex(ctx, pieceCid)
 	if err != nil {
@@ -935,4 +1039,115 @@ func (s *Store) RemoveIndexes(ctx context.Context, pieceCid cid.Cid) error {
 
 	failureMetrics = false
 	return nil
+}
+
+// /// Tx car db
+func (s *Store) addTxPieceToIdxDb(ctx context.Context, txPiece txcarlib.TxPiece) error {
+	qry := `INSERT INTO TxCarPieces (PieceCid, CarKey, PieceSize, CarSize, Version, CreatedAt) VALUES (?, ?, ?, ?, ?, ?) IF NOT EXISTS`
+	err := s.session.Query(qry, txPiece.PieceCid.String(), txPiece.CarKey.String(), txPiece.PieceSize, txPiece.CarSize, txPiece.Version, time.Now()).WithContext(ctx).Exec()
+	if err != nil {
+		return fmt.Errorf("inserting TxCarPieces for piece %s: %w", txPiece.PieceCid.String(), err)
+	}
+	return nil
+}
+
+func (s *Store) getTxPieceFromIdxDb(ctx context.Context, pieceCid cid.Cid) (*txcarlib.TxPiece, error) {
+
+	var carKeyStr string
+	var pieceSize uint64
+	var carSize uint64
+	var version int
+	qry := `SELECT CarKey, PieceSize, CarSize, Version FROM TxCarPieces WHERE PieceCid = ?`
+	err := s.session.Query(qry, pieceCid.String()).WithContext(ctx).
+		Scan(&carKeyStr, &pieceSize, &carSize, &version)
+	if err != nil {
+		if err == gocql.ErrNotFound {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("getTxPieceFromIdxDb: %w", err)
+	}
+	carKey, err := uuid.Parse(carKeyStr)
+	if err != nil {
+		return nil, fmt.Errorf("carKey uuid.Parse: %w", err)
+	}
+	var txPiece txcarlib.TxPiece
+	txPiece.PieceCid = pieceCid
+	txPiece.CarKey = carKey
+	txPiece.PieceSize = abi.PaddedPieceSize(pieceSize)
+	txPiece.CarSize = abi.UnpaddedPieceSize(carSize)
+	txPiece.Version = txcarlib.Version(version)
+	return &txPiece, nil
+}
+
+func (s *Store) TxPiecesContainingMultihash(ctx context.Context, m mh.Multihash) ([]cid.Cid, error) {
+	// check if it v1 txcar
+	log.Infow("----TxPiecesContainingMultihash", "m", m.String())
+	version := 0
+	if version == 0 {
+		var mock int
+		qry := `SELECT 1 FROM TxPieceBlockOffsetSizeV1 WHERE PayloadMultihash = ?`
+		err := s.session.Query(qry, m).WithContext(ctx).Scan(&mock)
+		if err != nil {
+			if err != gocql.ErrNotFound {
+				return nil, fmt.Errorf("TxPieceBlockOffsetSizeV1: %w", err)
+			}
+			return nil, nil
+		}
+		version = 1
+		log.Infow("----TxPiecesContainingMultihash is version 1", "m", m.String())
+	}
+
+	if version == 0 {
+		return nil, nil
+	}
+
+	return s.GetTxPiecesByVersion(ctx, txcarlib.Version(version))
+}
+
+func (s *Store) GetTxPiecesByVersion(ctx context.Context, version txcarlib.Version) ([]cid.Cid, error) {
+	// Get all piece cids referred to by the multihash
+	log.Infow("----GetTxPiecesByVersion", "version", version)
+	pcids := make([]cid.Cid, 0, 1)
+	var bz string
+	qry := `SELECT PieceCid FROM TxCarPieces WHERE Version = ?`
+	iter := s.session.Query(qry, version).WithContext(ctx).Iter()
+	for iter.Scan(&bz) {
+		pcid, err := cid.Decode(bz)
+		if err != nil {
+			return nil, fmt.Errorf("parsing piece cid: %w", err)
+		}
+		pcids = append(pcids, pcid)
+	}
+	if err := iter.Close(); err != nil {
+		return nil, fmt.Errorf("getting txcar v1 pieces: %w", err)
+	}
+	return pcids, nil
+}
+
+func (s *Store) getTxOffsetSizeV1(ctx context.Context, hash mh.Multihash, version txcarlib.Version) (uint64, uint64, error) {
+	var offset, size uint64
+	if version == txcarlib.V1 {
+		qry := `SELECT BlockOffset, BlockSize FROM TxPieceBlockOffsetSizeV1 WHERE PayloadMultihash = ?`
+		err := s.session.Query(qry, hash).WithContext(ctx).Scan(&offset, &size)
+		if err != nil {
+			return 0, 0, fmt.Errorf("getTxOffsetSize offset / size: %w", err)
+		}
+		return offset, size, nil
+	}
+
+	return 0, 0, fmt.Errorf("getTxOffsetSize version not support. version:%d", version)
+}
+
+func (s *Store) getTxOffsetSizeIter(ctx context.Context, version txcarlib.Version) (*gocql.Iter, error) {
+
+	if version == txcarlib.V1 {
+		qry := `SELECT PayloadMultihash, BlockOffset, BlockSize FROM TxPieceBlockOffsetSizeV1`
+		return s.session.Query(qry).WithContext(ctx).Iter(), nil
+	}
+
+	return nil, fmt.Errorf("getTxOffsetSizeQuery version not support. version:%d", version)
+}
+
+func (s *Store) GetTxPiece(ctx context.Context, pieceCid cid.Cid) (*txcarlib.TxPiece, error) {
+	return s.getTxPieceFromIdxDb(ctx, pieceCid)
 }

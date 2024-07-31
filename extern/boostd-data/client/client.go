@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"github.com/solopine/txcar/txcar"
 	"time"
 
 	"github.com/filecoin-project/boost/extern/boostd-data/model"
@@ -41,6 +42,7 @@ type Store struct {
 		FlaggedPiecesList         func(ctx context.Context, filter *types.FlaggedPiecesListFilter, cursor *time.Time, offset int, limit int) ([]model.FlaggedPiece, error)
 		FlaggedPiecesCount        func(ctx context.Context, filter *types.FlaggedPiecesListFilter) (int, error)
 		UntrackPiece              func(ctx context.Context, pieceCid cid.Cid, maddr address.Address) error
+		GetTxPiece                func(context.Context, cid.Cid) (*txcar.TxPiece, error)
 	}
 	closer   jsonrpc.ClientCloser
 	dialOpts []jsonrpc.Option
@@ -116,6 +118,10 @@ func (s *Store) GetPieceMetadata(ctx context.Context, pieceCid cid.Cid) (model.M
 
 func (s *Store) GetPieceDeals(ctx context.Context, pieceCid cid.Cid) ([]model.DealInfo, error) {
 	return s.client.GetPieceDeals(ctx, pieceCid)
+}
+
+func (s *Store) GetTxPiece(ctx context.Context, pieceCid cid.Cid) (*txcar.TxPiece, error) {
+	return s.client.GetTxPiece(ctx, pieceCid)
 }
 
 func (s *Store) PiecesContainingMultihash(ctx context.Context, m mh.Multihash) ([]cid.Cid, error) {

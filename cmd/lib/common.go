@@ -222,3 +222,98 @@ func SignAndPushToMpool(cctx *cli.Context, ctx context.Context, api api.Gateway,
 	sent = true
 	return
 }
+
+func TxdcSignAndPushToMpool(cctx *cli.Context, ctx context.Context, api api.Gateway, n *clinode.Node, ds *ds_sync.MutexDatastore, msg *types.Message) (cid cid.Cid, sent bool, err error) {
+	if ds == nil {
+		ds = ds_sync.MutexWrap(datastore.NewMapDatastore())
+	}
+	vmessagesigner := messagesigner.NewMessageSigner(n.Wallet, &modules.MpoolNonceAPI{ChainModule: api, StateModule: api}, ds)
+
+	gasPremium := msg.GasPremium
+
+	head, err := api.ChainHead(ctx)
+	if err != nil {
+		return
+	}
+	basefee := head.Blocks()[0].ParentBaseFee
+
+	spec := &lapi.MessageSendSpec{
+		MaxFee: abi.NewTokenAmount(1000000000), // 1 nFIL
+	}
+	msg, err = api.GasEstimateMessageGas(ctx, msg, spec, types.EmptyTSK)
+	if err != nil {
+		err = fmt.Errorf("GasEstimateMessageGas error: %w", err)
+		return
+	}
+
+	// use basefee + 20%
+	newGasFeeCap := big.Mul(big.Int(basefee), big.NewInt(6))
+	newGasFeeCap = big.Div(newGasFeeCap, big.NewInt(5))
+	if newGasFeeCap.LessThan(gasPremium) {
+		newGasFeeCap = gasPremium
+	}
+
+	if big.Cmp(msg.GasFeeCap, newGasFeeCap) < 0 {
+		msg.GasFeeCap = newGasFeeCap
+		msg.GasPremium = gasPremium
+	}
+
+	smsg, err := vmessagesigner.SignMessage(ctx, msg, nil, func(*types.SignedMessage) error { return nil })
+	if err != nil {
+		return
+	}
+
+	fmt.Println("about to send message with the following gas costs")
+	maxFee := big.Mul(smsg.Message.GasFeeCap, big.NewInt(smsg.Message.GasLimit))
+	fmt.Println("max fee:     ", types.FIL(maxFee), "(absolute maximum amount you are willing to pay to get your transaction confirmed)")
+	fmt.Println("gas fee cap: ", types.FIL(smsg.Message.GasFeeCap))
+	fmt.Println("gas limit:   ", smsg.Message.GasLimit)
+	fmt.Println("gas premium: ", types.FIL(smsg.Message.GasPremium))
+	fmt.Println("basefee:     ", types.FIL(basefee))
+	fmt.Println("nonce:       ", smsg.Message.Nonce)
+	fmt.Println()
+	if !cctx.Bool("assume-yes") {
+		validate := func(input string) error {
+			if strings.EqualFold(input, "y") || strings.EqualFold(input, "yes") {
+				return nil
+			}
+			if strings.EqualFold(input, "n") || strings.EqualFold(input, "no") {
+				return nil
+			}
+			return errors.New("incorrect input")
+		}
+
+		templates := &promptui.PromptTemplates{
+			Prompt:  "{{ . }} ",
+			Valid:   "{{ . | green }} ",
+			Invalid: "{{ . | red }} ",
+			Success: "{{ . | cyan | bold }} ",
+		}
+
+		prompt := promptui.Prompt{
+			Label:     "Proceed? Yes [Y/y] / No [N/n], Ctrl+C (^C) to exit",
+			Templates: templates,
+			Validate:  validate,
+		}
+
+		var input string
+
+		input, err = prompt.Run()
+		if err != nil {
+			return
+		}
+		if strings.Contains(strings.ToLower(input), "n") {
+			fmt.Println("Message not sent")
+			return
+		}
+	}
+
+	cid, err = api.MpoolPush(ctx, smsg)
+	if err != nil {
+		err = fmt.Errorf("mpool push: failed to push message: %w", err)
+		return
+	}
+	fmt.Println("sent message: ", cid)
+	sent = true
+	return
+}

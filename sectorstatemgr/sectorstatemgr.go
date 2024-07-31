@@ -175,12 +175,15 @@ func (m *SectorStateMgr) refreshState(ctx context.Context) (*SectorStateUpdates,
 	if err != nil {
 		return nil, fmt.Errorf("getting sectors state from lotus: %w", err)
 	}
+	log.Infow("----refreshState", "storageList", len(storageList))
 
 	// Convert to a map of <sector id> => <seal state>
 	sectorStates := make(map[abi.SectorID]db.SealState)
 	allSectorStates := make(map[abi.SectorID]db.SealState)
 	for _, loc := range storageList {
+		//log.Infow("----refreshState.for", "loc", len(loc))
 		for _, sectorDecl := range loc {
+			//log.Infow("----refreshState.for.loc", "Number", sectorDecl.Number, "SectorFileType", sectorDecl.SectorFileType.String())
 			// Explicity set the sector state if its Sealed or Unsealed
 			switch {
 			case sectorDecl.SectorFileType.Has(storiface.FTUnsealed):
@@ -238,11 +241,13 @@ func (m *SectorStateMgr) refreshState(ctx context.Context) (*SectorStateUpdates,
 	if err != nil {
 		return nil, err
 	}
+	log.Infow("----StateMinerActiveSectors", "activeSet", len(activeSet))
 
 	allSet, err := m.fullnodeApi.StateMinerSectors(ctx, m.Maddr, nil, head.Key())
 	if err != nil {
 		return nil, err
 	}
+	log.Infow("----StateMinerSectors", "allSet", len(allSet))
 
 	mid, err := address.IDFromAddress(m.Maddr)
 	if err != nil {

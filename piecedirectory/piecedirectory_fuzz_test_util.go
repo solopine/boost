@@ -53,7 +53,7 @@ func testPieceDirectoryBlockstoreGetFuzz(ctx context.Context, t *testing.T, cl *
 	// Any calls to get a reader over data should return a reader over the random CAR file
 	pr := CreateMockPieceReaders(t, readers)
 
-	pm := NewPieceDirectory(cl, pr, 1)
+	pm := NewPieceDirectory(cl, pr, nil, nil, 1)
 	pm.Start(ctx)
 
 	for sectorNumber, reader := range readers {

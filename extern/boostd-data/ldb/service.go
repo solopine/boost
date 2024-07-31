@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	txcarlib "github.com/solopine/txcar/txcar"
+	"golang.org/x/xerrors"
 	"os"
 	"sync"
 	"time"
@@ -851,4 +853,8 @@ func (s *Store) UntrackPiece(ctx context.Context, pieceCid cid.Cid, maddr addres
 	// so there is no need to delete anything
 	return nil
 
+}
+
+func (s *Store) GetTxPiece(ctx context.Context, pieceCid cid.Cid) (*txcarlib.TxPiece, error) {
+	return nil, xerrors.Errorf("unsupported")
 }

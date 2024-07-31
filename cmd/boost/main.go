@@ -38,12 +38,15 @@ func main() {
 			dealStatusCmd,
 			retrieveCmd,
 			offlineDealCmd,
+			offlineBatchDealCmd,
 			providerCmd,
 			walletCmd,
 			directDealAllocate,
 			directDealGetAllocations,
 			listClaimsCmd,
 			clientExtendDealCmd,
+			txClientExtendDealCmd,
+			txdcExtendDealCmd,
 		},
 	}
 	app.Setup()
