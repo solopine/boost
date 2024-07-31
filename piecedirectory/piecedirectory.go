@@ -1029,6 +1029,8 @@ func (s *SectorAccessorAsPieceReader) GetReader(ctx context.Context, minerAddr a
 	ctx, span := tracing.Tracer.Start(ctx, "sealer.get_reader")
 	defer span.End()
 
+	log.Infow("----GetReader", "minerAddr", minerAddr, "id", id, "offset", offset, "length", length)
+	log.Infof("----GetReader.SectorAccessor:%T", s.SectorAccessor)
 	isUnsealed, err := s.SectorAccessor.IsUnsealed(ctx, id, offset.Unpadded(), length.Unpadded())
 	if err != nil {
 		return nil, fmt.Errorf("checking unsealed state of sector %d: %w", id, err)

@@ -171,6 +171,7 @@ func (a *MultiMinerAccessor) IsUnsealed(ctx context.Context, minerAddr address.A
 	if !ok {
 		return false, fmt.Errorf("is unsealed: no endpoint registered for miner %s, len(readers)=%d", minerAddr, len(a.readers))
 	}
+	fmt.Println("----IsUnsealed.sa:%T", sa)
 	return sa.IsUnsealed(ctx, sectorID, offset, length)
 }
 
