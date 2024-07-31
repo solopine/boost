@@ -79,6 +79,7 @@ func (sa *sectorAccessor) UnsealSectorAt(ctx context.Context, sectorID abi.Secto
 }
 
 func (sa *sectorAccessor) IsUnsealed(ctx context.Context, sectorID abi.SectorNumber, offset abi.UnpaddedPieceSize, length abi.UnpaddedPieceSize) (bool, error) {
+	log.Infow("----sectorAccessor.IsUnsealed", "sectorID", sectorID, "offset", offset, "length", length)
 	si, err := sa.sectorsStatus(ctx, sectorID, true)
 	if err != nil {
 		return false, xerrors.Errorf("failed to get sector info: %w", err)

@@ -64,6 +64,10 @@ func (d *Doctor) Run(ctx context.Context) {
 				doclog.Warn("sector state manager not yet updated")
 				return nil
 			}
+			//for secId, secState := range lu.SectorStates {
+			//	doclog.Debugw("----lu.SectorStates", "secId", secId.Number, "secState", secState)
+			//}
+			doclog.Debugw("----lu.SectorStates", "secId.len", len(lu.SectorStates))
 
 			head, err := d.fullnodeApi.ChainHead(ctx)
 			if err != nil {
@@ -86,6 +90,10 @@ func (d *Doctor) Run(ctx context.Context) {
 			if err != nil {
 				return fmt.Errorf("getting claims for the miner %s: %w", d.maddr, err)
 			}
+			//for _, claim := range claims {
+			//	doclog.Debugw("StateGetClaims", "claim", claim)
+			//}
+			doclog.Debugw("----StateGetClaims", "claims.len", len(claims))
 
 			for _, pcid := range pcids {
 				err := d.checkPiece(ctx, pcid, lu, head, claims)
@@ -189,7 +197,11 @@ func (d *Doctor) checkPiece(ctx context.Context, pieceCid cid.Cid, lu *sectorsta
 				for _, v := range claims {
 					if v.Sector == dealId.SectorID {
 						found = true
+						break
 					}
+				}
+				if found {
+					break
 				}
 			} else {
 				doclog.Debugw("checking state for market deal", "piece", pieceCid, "deal", dealId.ChainDealID)

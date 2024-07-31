@@ -43,6 +43,7 @@ func main() {
 			indexProvCmd,
 			importDataCmd,
 			importDirectDataCmd,
+			importDirectDataTxCmd,
 			logCmd,
 			netCmd,
 			pieceDirCmd,
