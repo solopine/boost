@@ -1803,8 +1803,8 @@ github.com/smartystreets/goconvey v1.7.2 h1:9RBaZCeXEQ3UselpuwUQHltGVXvdwm6cv1hg
 github.com/smartystreets/goconvey v1.7.2/go.mod h1:Vw0tHAZW6lzCRk3xgdin6fKYcG+G3Pg9vgXWeJpQFMM=
 github.com/smola/gocompat v0.2.0/go.mod h1:1B0MlxbmoZNo3h8guHp8HztB3BSYR5itql9qtVc0ypY=
 github.com/soheilhy/cmux v0.1.4/go.mod h1:IM3LyeVVIOuxMH7sFAkER9+bJ4dT7Ms6E4xg4kGIyLM=
-github.com/solopine/lotus v1.29.0-tx1 h1:fbHjqzF+pkowbI8nnpC3Xm9snw4Vy1auP8rnDP6SdBA=
-github.com/solopine/lotus v1.29.0-tx1/go.mod h1:izkkF1zvTU3DDs21tkdRlJgU5OPfJZkRrtLyHPCHHfE=
+github.com/solopine/lotus v1.29.1-tx1 h1:OUhHRrlqxQy0FIN8oKL61gj6oOE5bI/MtdzV0MYH8is=
+github.com/solopine/lotus v1.29.1-tx1/go.mod h1:OKCCLyiH1BQAdnF4Finyg+8C9joijousxdFeEYCeXNo=
 github.com/solopine/txcar v0.0.20 h1:WynAQxW+68xxnQbqABVRNxkkCHJOXf94zIYVas/rahQ=
 github.com/solopine/txcar v0.0.20/go.mod h1:g12V4oAwCuuKS4pu98QjACaJEmR8QvoW1tzL8kQ9cIM=
 github.com/sony/gobreaker v0.4.1/go.mod h1:ZKptC7FHNvhBz7dN2LGjPVBz2sZJmc0/PkyDJOjmxWY=
