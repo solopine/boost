@@ -348,7 +348,7 @@ require (
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7 // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
-	github.com/triplewz/poseidon v0.0.1 // indirect
+	github.com/triplewz/poseidon v0.0.2-0.20240407130934-5265fab9d889 // indirect
 	github.com/twmb/murmur3 v1.1.6 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.1 // indirect
@@ -393,4 +393,5 @@ require (
 )
 
 replace github.com/KarpelesLab/reflink => github.com/magik6k/reflink v1.0.2-patch1
+
 replace github.com/filecoin-project/lotus => github.com/solopine/lotus v1.30.0-rc2-curio-1
