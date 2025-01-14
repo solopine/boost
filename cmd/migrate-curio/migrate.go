@@ -257,20 +257,25 @@ func migrateBoostDeals(ctx context.Context, activeSectors bitfield.BitField, mad
 			return err
 		}
 
-		// de-serialize transport opaque token
 		tInfo := &transportTypes.HttpRequest{}
-		if err := json.Unmarshal(deal.Transfer.Params, tInfo); err != nil {
-			return fmt.Errorf("deal: %s: failed to de-serialize transport params bytes '%s': %s", deal.DealUuid.String(), string(deal.Transfer.Params), err)
-		}
+		var headers []byte
+		if !deal.IsOffline {
+			// de-serialize transport opaque token
+			if err := json.Unmarshal(deal.Transfer.Params, tInfo); err != nil {
+				return fmt.Errorf("deal: %s: failed to de-serialize transport params bytes '%s': %s", deal.DealUuid.String(), string(deal.Transfer.Params), err)
+			}
 
-		hdr := http.Header{}
-		for k, v := range tInfo.Headers {
-			hdr.Add(k, v)
-		}
+			goheaders := http.Header{}
+			for k, v := range tInfo.Headers {
+				goheaders.Set(k, v)
+			}
 
-		headers, err := json.Marshal(hdr)
-		if err != nil {
-			return fmt.Errorf("deal: %s: failed to marshal headers: %s", deal.DealUuid.String(), err)
+			headers, err = json.Marshal(goheaders)
+			if err != nil {
+				return fmt.Errorf("deal: %s: failed to marshal headers: %s", deal.DealUuid.String(), err)
+			}
+		} else {
+			headers = []byte("{}")
 		}
 
 		// Cbor marshal the Deal Label manually as non-string label will result in "" with JSON marshal
@@ -408,7 +413,7 @@ func migrateLegacyDeals(ctx context.Context, full v1api.FullNode, activeSectors 
 		if i > 0 && i%100 == 0 {
 			fmt.Printf("Migrating Legacy Deals: %d / %d (%0.2f%%)\n", i, len(legacyDeals), float64(i)/float64(len(legacyDeals))*100)
 		}
-		llog := log.With("Boost Deal", deal.ProposalCid.String())
+		llog := log.With("Legacy Deal", deal.ProposalCid.String())
 		// Skip deals which do not have chain deal ID
 		if deal.DealID == 0 {
 			llog.Infow("Skipping as chain deal ID is 0")
