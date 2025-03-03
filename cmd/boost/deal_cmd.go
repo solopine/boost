@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"strings"
 
 	bcli "github.com/filecoin-project/boost/cli"
@@ -90,6 +91,10 @@ var dealFlags = []cli.Flag{
 		Usage: "indicates that deal index should not be announced to the IPNI(Network Indexer)",
 		Value: false,
 	},
+	&cli.StringFlag{
+		Name:  "tx-addr",
+		Usage: "tx-addr",
+	},
 }
 
 var dealCmd = &cli.Command{
@@ -156,6 +161,14 @@ func dealCmdAction(cctx *cli.Context, isOnline bool) error {
 	addrInfo, err := cmd.GetAddrInfo(ctx, api, maddr)
 	if err != nil {
 		return err
+	}
+
+	if cctx.IsSet("tx-addr") {
+		txAddrString := cctx.String("tx-addr")
+		addrInfo, err = peer.AddrInfoFromString(txAddrString)
+		if err != nil {
+			return err
+		}
 	}
 
 	log.Debugw("found storage provider", "id", addrInfo.ID, "multiaddrs", addrInfo.Addrs, "addr", maddr)
