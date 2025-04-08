@@ -1824,8 +1824,8 @@ github.com/smola/gocompat v0.2.0/go.mod h1:1B0MlxbmoZNo3h8guHp8HztB3BSYR5itql9qt
 github.com/soheilhy/cmux v0.1.4/go.mod h1:IM3LyeVVIOuxMH7sFAkER9+bJ4dT7Ms6E4xg4kGIyLM=
 github.com/solopine/lotus v1.32.2-curio-1 h1:uKbNCd+19ZIRXuWlnxZPmMVJVfOZIwfY8rvicdNh8VE=
 github.com/solopine/lotus v1.32.2-curio-1/go.mod h1:eNfZ0eXGMckDBFQmL1/MJk/0UgxVKHy74z40uMrGlg4=
-github.com/solopine/txcar v0.6.8 h1:sTcl1IMmHoFpASEwS0Ees9dMhQfxYYKbMH8uuvWk6fo=
-github.com/solopine/txcar v0.6.8/go.mod h1:tooFNQIeLnEf3YPPbeQygNpUhrNH9HvFj2XWBVSMAxQ=
+github.com/solopine/txcar v0.6.9 h1:/VMR1ruPj4W0JMJg63maH9VL8jgrL8gNeccTFk/fOSE=
+github.com/solopine/txcar v0.6.9/go.mod h1:tooFNQIeLnEf3YPPbeQygNpUhrNH9HvFj2XWBVSMAxQ=
 github.com/sony/gobreaker v0.4.1/go.mod h1:ZKptC7FHNvhBz7dN2LGjPVBz2sZJmc0/PkyDJOjmxWY=
 github.com/sourcegraph/annotate v0.0.0-20160123013949-f4cad6c6324d/go.mod h1:UdhH50NIW0fCiwBSr0co2m7BnFLdv4fQTgdqdJTHFeE=
 github.com/sourcegraph/syntaxhighlight v0.0.0-20170531221838-bd320f5d308e/go.mod h1:HuIsMU8RRBOtsCgI77wP899iHVBQpCmg4ErYMZB+2IA=

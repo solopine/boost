@@ -4350,6 +4350,7 @@ github.com/soheilhy/cmux v0.1.5/go.mod h1:T7TcVDs9LWfQgPlPsdngu6I6QIoyIFZDDC6sNE
 github.com/solopine/txcar v0.5.1/go.mod h1:tooFNQIeLnEf3YPPbeQygNpUhrNH9HvFj2XWBVSMAxQ=
 github.com/solopine/txcar v0.6.6/go.mod h1:tooFNQIeLnEf3YPPbeQygNpUhrNH9HvFj2XWBVSMAxQ=
 github.com/solopine/txcar v0.6.7/go.mod h1:tooFNQIeLnEf3YPPbeQygNpUhrNH9HvFj2XWBVSMAxQ=
+github.com/solopine/txcar v0.6.9/go.mod h1:tooFNQIeLnEf3YPPbeQygNpUhrNH9HvFj2XWBVSMAxQ=
 github.com/sony/gobreaker v0.4.1 h1:oMnRNZXX5j85zso6xCPRNPtmAycat+WcoKbklScLDgQ=
 github.com/soundcloud/go-runit v0.0.0-20150630195641-06ad41a06c4a h1:os5OBNhwOwybXZMNLqT96XqtjdTtwRFw2w08uluvNeI=
 github.com/sourcegraph/annotate v0.0.0-20160123013949-f4cad6c6324d h1:yKm7XZV6j9Ev6lojP2XaIshpT4ymkqhMeSghO5Ps00E=
