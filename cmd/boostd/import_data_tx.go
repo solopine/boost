@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/filecoin-project/boost/txcar"
-	"github.com/solopine/txcar/txcar/parser"
+	txcarlib "github.com/solopine/txcar/txcar"
 	"strings"
 
 	bcli "github.com/filecoin-project/boost/cli"
@@ -47,7 +47,7 @@ var importDataTxCmd = &cli.Command{
 		//}
 
 		txCarInfoStr := cctx.Args().Get(1)
-		txCarInfoStr = parser.TxCarKeyPrefix + txCarInfoStr
+		txCarInfoStr = txcarlib.TxCarKeyPrefix + txCarInfoStr
 		txPiece, err := txcar.ParseTxPiece(txCarInfoStr)
 		if err != nil {
 			return fmt.Errorf("txPiece invalid: %w", err)

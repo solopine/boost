@@ -1,7 +1,7 @@
 package share
 
 import (
-	"github.com/solopine/txcar/txcar/common"
+	"github.com/solopine/txcar/txcar"
 	"golang.org/x/xerrors"
 )
 
@@ -23,16 +23,16 @@ var (
 		L4: "f124o7gz4y7ogcqps3kw2ecbkwja6hjqbs2gjefci",
 		L5: "f1a5venknwex7jxd6hkeju7odpjpdj322iqdaw3ba",
 	}
-	TxVersionLdnMap = map[common.TxCarVersion]TxLdn{
-		common.V1001: L1,
-		common.V1002: L2,
-		common.V1003: L3,
-		common.V1004: L4,
-		common.V1005: L5,
+	TxVersionLdnMap = map[txcar.Version]TxLdn{
+		txcar.V1001: L1,
+		txcar.V1002: L2,
+		txcar.V1003: L3,
+		txcar.V1004: L4,
+		txcar.V1005: L5,
 	}
 )
 
-func GetLdnAddrByTxVersion(txVersion common.TxCarVersion) (string, error) {
+func GetLdnAddrByTxVersion(txVersion txcar.Version) (string, error) {
 	ldn, ok := TxVersionLdnMap[txVersion]
 	if !ok {
 		return "", xerrors.Errorf("TxVersionLdnMap Not support: %d", txVersion)

@@ -6,11 +6,11 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin/v9/market"
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
-	"github.com/solopine/txcar/txcar/common"
+	"github.com/solopine/txcar/txcar"
 )
 
 type TxDcClientHandler interface {
-	DataVersion() common.TxCarVersion
+	DataVersion() txcar.Version
 	LdnAddr() string
 	Count() int
 	DealCar(i int) TxDealCar
@@ -20,7 +20,7 @@ type TxDcClientHandler interface {
 }
 
 type TxDealCar struct {
-	TxVersion common.TxCarVersion
+	TxVersion txcar.Version
 	PieceCid  cid.Cid
 	PieceSize abi.PaddedPieceSize
 	RootCid   cid.Cid

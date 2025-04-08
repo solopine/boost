@@ -11,7 +11,7 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
 	lcli "github.com/filecoin-project/lotus/cli"
 	"github.com/google/uuid"
-	"github.com/solopine/txcar/txcar/parser"
+	txcarlib "github.com/solopine/txcar/txcar"
 	"github.com/urfave/cli/v2"
 )
 
@@ -58,7 +58,7 @@ var importDirectDataTxCmd = &cli.Command{
 		ctx := cctx.Context
 
 		txCarInfoStr := cctx.Args().Get(0)
-		txCarInfoStr = parser.TxCarKeyPrefix + txCarInfoStr
+		txCarInfoStr = txcarlib.TxCarKeyPrefix + txCarInfoStr
 		txPiece, err := txcar.ParseTxPiece(txCarInfoStr)
 		if err != nil {
 			return fmt.Errorf("txPiece invalid: %w", err)

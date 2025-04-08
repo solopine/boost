@@ -9,7 +9,7 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin/v9/market"
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
-	"github.com/solopine/txcar/txcar/common"
+	"github.com/solopine/txcar/txcar"
 	"golang.org/x/xerrors"
 	"os"
 	"path/filepath"
@@ -19,7 +19,7 @@ import (
 
 type TxDcClientHandler struct {
 	dealFilePath string
-	dataVersion  common.TxCarVersion
+	dataVersion  txcar.Version
 	provider     string
 	ldnAddr      string
 	count        int
@@ -67,7 +67,7 @@ func NewTxDcClientHandler(dealFilePath string, provider string) (*TxDcClientHand
 	return &handler, nil
 }
 
-func (p TxDcClientHandler) DataVersion() common.TxCarVersion {
+func (p TxDcClientHandler) DataVersion() txcar.Version {
 	return p.dataVersion
 }
 func (p TxDcClientHandler) LdnAddr() string {
@@ -114,7 +114,7 @@ func (p TxDcClientHandler) checkValid() bool {
 	return true
 }
 
-func parseDealInfoFromPath(dealFilePath string) (dataVersion common.TxCarVersion, provider string, count int, err error) {
+func parseDealInfoFromPath(dealFilePath string) (dataVersion txcar.Version, provider string, count int, err error) {
 	// 1001_f03513151_1557.csv
 	if dealFilePath == "" {
 		err = xerrors.Errorf("dealFilePath is empty: %s", dealFilePath)
@@ -134,7 +134,7 @@ func parseDealInfoFromPath(dealFilePath string) (dataVersion common.TxCarVersion
 	if err != nil {
 		return
 	}
-	dataVersion = common.TxCarVersion(dataVersionInt)
+	dataVersion = txcar.Version(dataVersionInt)
 
 	provider = fileNameParts[1]
 	count, err = strconv.Atoi(fileNameParts[2])
@@ -173,7 +173,7 @@ func readTxDealCarsFromDealFile(dealFilePath string) ([]CustomTxDealCar, error) 
 		if err != nil {
 			return nil, err
 		}
-		txVersion := common.TxCarVersion(clientDataVersion)
+		txVersion := txcar.Version(clientDataVersion)
 
 		pieceSize, err := strconv.ParseInt(parts[6], 10, 64)
 		if err != nil {

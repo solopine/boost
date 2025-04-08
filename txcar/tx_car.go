@@ -10,15 +10,13 @@ import (
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/solopine/txcar/txcar"
-	"github.com/solopine/txcar/txcar/common"
-	"github.com/solopine/txcar/txcar/parser"
 )
 
 var log = logging.Logger("boost-txcar")
 
 func ParseTxPiece(path string) (*txcar.TxPiece, error) {
-	txPieceParser := parser.NewBoostPathParser(path)
-	return txPieceParser.Parse()
+	p, err := txcar.BoostPathParser.Parse(path)
+	return &p, err
 }
 
 func AddTxPieceToDb(ctx context.Context, db *sql.DB, txPiece *txcar.TxPiece) error {
@@ -55,7 +53,7 @@ func GetTxPieceFromDb(ctx context.Context, db *sql.DB, pieceCid cid.Cid) (*txcar
 		return nil, err
 	}
 	return &txcar.TxPiece{
-		Version:   common.TxCarVersion(version),
+		Version:   txcar.Version(version),
 		CarKey:    carKey,
 		PieceCid:  pieceCid,
 		PieceSize: abi.PaddedPieceSize(pieceSize),

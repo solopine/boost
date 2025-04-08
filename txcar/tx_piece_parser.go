@@ -3,7 +3,6 @@ package txcar
 import (
 	"fmt"
 	txcarlib "github.com/solopine/txcar/txcar"
-	"github.com/solopine/txcar/txcar/parser"
 	"strings"
 )
 
@@ -13,7 +12,7 @@ const (
 
 func EncodeInDealUuidStr(txPiece txcarlib.TxPiece, dealUuid string) string {
 	str := TxPieceEncodePrefix + dealUuid +
-		"/" + parser.DeParse(txPiece)
+		"/" + txcarlib.BoostPathParser.DeParse(txPiece)
 	return str
 }
 
@@ -33,11 +32,10 @@ func DecodeFromDealUuidStr(encodedDealUuid string) (*txcarlib.TxPiece, string, e
 	realDealUuidStr := left[0:pos]
 
 	txPieceStr := left[pos+1:]
-	txParser := parser.NewBoostPathParser(txPieceStr)
-	txPiece, err := txParser.Parse()
+	txPiece, err := txcarlib.BoostPathParser.Parse(txPieceStr)
 	if err != nil {
 		return nil, "", err
 	}
 
-	return txPiece, realDealUuidStr, nil
+	return &txPiece, realDealUuidStr, nil
 }
