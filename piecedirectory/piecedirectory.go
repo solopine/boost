@@ -8,7 +8,6 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
-	"github.com/solopine/txcar/txcar/common"
 
 	"github.com/filecoin-project/boost/txcar"
 	txcarlib "github.com/solopine/txcar/txcar"
@@ -343,7 +342,7 @@ func (ps *PieceDirectory) addIndexForPiece(ctx context.Context, pieceCid cid.Cid
 	if err != nil {
 		return err
 	}
-	if txPiece != nil && txPiece.Version == common.V1 {
+	if txPiece != nil && txPiece.Version == txcarlib.V1 {
 		log.Infow("----txPiece V1 addIndexForPiece", "pieceCid", txPiece.PieceCid.String())
 		// create mock recs
 		mockRec := model.Record{}
