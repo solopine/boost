@@ -103,7 +103,7 @@ require (
 	github.com/raulk/go-watchdog v1.3.0
 	github.com/rs/cors v1.7.0
 	github.com/schollz/progressbar/v3 v3.14.1
-	github.com/solopine/txcar v0.8.0
+	github.com/solopine/txcar v0.9.1
 	github.com/stretchr/testify v1.10.0
 	github.com/urfave/cli/v2 v2.27.5
 	github.com/whyrusleeping/base32 v0.0.0-20170828182744-c30ac30633cc
