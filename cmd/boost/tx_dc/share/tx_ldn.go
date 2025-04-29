@@ -13,6 +13,8 @@ const (
 	L3
 	L4
 	L5
+	L6
+	L7
 )
 
 var (
@@ -22,6 +24,8 @@ var (
 		L3: "f1ucj4c2jvrxlc2pgnebsdhaarrdx4uhptal67etq",
 		L4: "f124o7gz4y7ogcqps3kw2ecbkwja6hjqbs2gjefci",
 		L5: "f1a5venknwex7jxd6hkeju7odpjpdj322iqdaw3ba",
+		L6: "f1vfukygt43b2d5nvzlvokcbok2pe4pykiky3mouy",
+		L7: "f1wjl22ez6dvsxlyfiivqil62ziginn2ytmn7b6uy",
 	}
 	TxVersionLdnMap = map[txcar.Version]TxLdn{
 		txcar.V1001: L1,
@@ -29,6 +33,14 @@ var (
 		txcar.V1003: L3,
 		txcar.V1004: L4,
 		txcar.V1005: L5,
+
+		txcar.Version(2001): L1,
+		txcar.Version(2002): L2,
+		txcar.Version(2003): L3,
+		txcar.Version(2004): L4,
+		txcar.Version(2005): L5,
+		txcar.Version(2006): L6,
+		txcar.Version(2007): L7,
 	}
 )
 

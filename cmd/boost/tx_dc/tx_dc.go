@@ -26,15 +26,15 @@ var (
 	}
 )
 
-func ParseTxDcClientString(str string) (TxDcClient, bool) {
-	c, ok := txDcClientMap[strings.ToLower(str)]
+func ParseTxDcClientString(txDcClientType string) (TxDcClient, bool) {
+	c, ok := txDcClientMap[strings.ToLower(txDcClientType)]
 	return c, ok
 }
 
-func NewTxDcClientHandler(client TxDcClient, dealFilePath string, provider string) (share.TxDcClientHandler, error) {
+func NewTxDcClientHandler(client TxDcClient, dealFilePath string, provider string, txDcClientName string, carRootDir string) (share.TxDcClientHandler, error) {
 	switch client {
 	case Me:
-		return me.NewTxDcClientHandler(dealFilePath, provider)
+		return me.NewTxDcClientHandler(dealFilePath, provider, txDcClientName, carRootDir)
 	case Shanghai:
 		return shanghai.NewTxDcClientHandler(dealFilePath, provider)
 	default:

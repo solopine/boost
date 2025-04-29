@@ -169,6 +169,16 @@ var offlineBatchDealCmd = &cli.Command{
 			Usage:    "storage provider on-chain address",
 			Required: true,
 		},
+		&cli.StringFlag{
+			Name:  "tx-dc-client-name",
+			Usage: "TxDcClientName",
+			Value: "",
+		},
+		&cli.StringFlag{
+			Name:  "car-root-dir",
+			Usage: "car-root-dir",
+			Value: "",
+		},
 	},
 	Before: before,
 	Action: func(cctx *cli.Context) error {
@@ -414,12 +424,15 @@ func batchOfflineDealCmdAction(cctx *cli.Context) error {
 	dealFilePath := cctx.String("deal-file")
 	dealFileDir := filepath.Dir(dealFilePath)
 
+	txDcClientName := cctx.String("tx-dc-client-name")
+	carRootDir := cctx.String("car-root-dir")
+
 	txDcClientStr := cctx.String("tx-dc-client")
 	txDcClient, ok := tx_dc.ParseTxDcClientString(txDcClientStr)
 	if !ok {
 		return xerrors.Errorf("cannot ParseTxDcClientString: %s", txDcClientStr)
 	}
-	txDcClientHandler, err := tx_dc.NewTxDcClientHandler(txDcClient, dealFilePath, provider)
+	txDcClientHandler, err := tx_dc.NewTxDcClientHandler(txDcClient, dealFilePath, provider, txDcClientName, carRootDir)
 	if err != nil {
 		return err
 	}

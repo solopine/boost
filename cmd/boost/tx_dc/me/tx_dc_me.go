@@ -18,21 +18,24 @@ import (
 )
 
 type TxDcClientHandler struct {
-	dealFilePath string
-	dealFileName string
-	dataVersion  txcar.Version
-	provider     string
-	ldnAddr      string
-	count        int
-	dealCars     []CustomTxDealCar
+	dealFilePath  string
+	dealFileName  string
+	carFolderName string
+	clientName    string
+	carRootDir    string
+	dataVersion   txcar.Version
+	provider      string
+	ldnAddr       string
+	count         int
+	dealCars      []CustomTxDealCar
 }
 
 type CustomTxDealCar struct {
 	dealCar share.TxDealCar
 }
 
-func NewTxDcClientHandler(dealFilePath string, provider string) (*TxDcClientHandler, error) {
-	dataVersion, dealFileName, err := parseDealInfoFromPath(dealFilePath)
+func NewTxDcClientHandler(dealFilePath string, provider string, clientName string, carRootDir string) (*TxDcClientHandler, error) {
+	dataVersion, dealFileName, carFolderName, err := parseDealInfoFromPath(dealFilePath)
 	if err != nil {
 		return nil, err
 	}
@@ -43,13 +46,16 @@ func NewTxDcClientHandler(dealFilePath string, provider string) (*TxDcClientHand
 	}
 
 	handler := TxDcClientHandler{
-		dealFilePath: dealFilePath,
-		dealFileName: dealFileName,
-		dataVersion:  dataVersion,
-		provider:     provider,
-		ldnAddr:      "",
-		count:        len(dealCars),
-		dealCars:     dealCars,
+		dealFilePath:  dealFilePath,
+		dealFileName:  dealFileName,
+		carFolderName: carFolderName,
+		clientName:    clientName,
+		carRootDir:    carRootDir,
+		dataVersion:   dataVersion,
+		provider:      provider,
+		ldnAddr:       "",
+		count:         len(dealCars),
+		dealCars:      dealCars,
 	}
 	if !handler.checkValid() {
 		return nil, xerrors.Errorf("checkValid false")
@@ -82,16 +88,21 @@ func (p TxDcClientHandler) DealCar(i int) share.TxDealCar {
 }
 
 func (p TxDcClientHandler) OutputFileName() string {
-	return fmt.Sprintf("deal-shanghai-%s-%s.csv", p.dealFileName, p.provider)
+	return fmt.Sprintf("deal-%s-%s-%s.csv", p.clientName, p.dealFileName, p.provider)
 }
 
 func (p TxDcClientHandler) OutputHeader() string {
-	return "dealUuid,maddr,payload cid,PieceCID,StartEpoch,EndEpoch\n"
+	return "dealUuid,maddr,payload cid,PieceCID,StartEpoch,EndEpoch,version,dir,import-cmd\n"
 }
 
 func (p TxDcClientHandler) OutputLine(i int, dealUuid uuid.UUID, maddr address.Address, rootCid cid.Cid, dealProposal *market.ClientDealProposal) string {
-	return fmt.Sprintf("%s,%s,%s,%s,%d,%d\n",
-		dealUuid, maddr, rootCid, dealProposal.Proposal.PieceCID, dealProposal.Proposal.StartEpoch, dealProposal.Proposal.EndEpoch)
+	carFileName := dealProposal.Proposal.PieceCID.String() + ".car"
+	carFilePath := filepath.Join(p.carRootDir, p.carFolderName, carFileName)
+	importCmd := fmt.Sprintf("boostd import-data %s %s", dealUuid, carFilePath)
+	return fmt.Sprintf("%s,%s,%s,%s,%d,%d,%d,%s,%s\n",
+		dealUuid, maddr, rootCid, dealProposal.Proposal.PieceCID, dealProposal.Proposal.StartEpoch, dealProposal.Proposal.EndEpoch,
+		p.dataVersion, p.carFolderName, importCmd,
+	)
 }
 
 func (p TxDcClientHandler) checkValid() bool {
@@ -110,8 +121,9 @@ func (p TxDcClientHandler) checkValid() bool {
 	return true
 }
 
-func parseDealInfoFromPath(dealFilePath string) (dataVersion txcar.Version, dealFileName string, err error) {
+func parseDealInfoFromPath(dealFilePath string) (dataVersion txcar.Version, dealFileName string, carFolderName string, err error) {
 	// 1004-02-001.2025-03-29_04-52-57.log
+	// carFolderName is 1004-02-001
 	if dealFilePath == "" {
 		err = xerrors.Errorf("dealFilePath is empty: %s", dealFilePath)
 		return
@@ -131,6 +143,8 @@ func parseDealInfoFromPath(dealFilePath string) (dataVersion txcar.Version, deal
 		return
 	}
 	dataVersion = txcar.Version(dataVersionInt)
+
+	carFolderName = fileName[0:11]
 	return
 }
 
@@ -148,7 +162,7 @@ func readTxDealCarsFromDealFile(dealFilePath string, txVersion txcar.Version) ([
 	var txDealCars []CustomTxDealCar
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		//dealUuid,	maddr,	payload cid,	PieceCID,	StartEpoch,	EndEpoch
+		//no	version	carKey	pieceCid	pieceSize	carSize	payloadCid
 		line := scanner.Text()
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -156,11 +170,11 @@ func readTxDealCarsFromDealFile(dealFilePath string, txVersion txcar.Version) ([
 		}
 
 		parts := strings.Split(line, "\t")
-		if len(parts) != 6 {
-			return nil, xerrors.Errorf("parts is not 6: %s", line)
+		if len(parts) != 7 {
+			return nil, xerrors.Errorf("parts is not 7: %s", line)
 		}
 
-		pieceSize, err := strconv.ParseInt(parts[3], 10, 64)
+		pieceSize, err := strconv.ParseInt(parts[4], 10, 64)
 		if err != nil {
 			return nil, err
 		}
@@ -168,9 +182,9 @@ func readTxDealCarsFromDealFile(dealFilePath string, txVersion txcar.Version) ([
 		txDealCar := CustomTxDealCar{
 			dealCar: share.TxDealCar{
 				TxVersion: txVersion,
-				PieceCid:  cid.MustParse(parts[2]),
+				PieceCid:  cid.MustParse(parts[3]),
 				PieceSize: abi.PaddedPieceSize(pieceSize),
-				RootCid:   cid.MustParse(parts[5]),
+				RootCid:   cid.MustParse(parts[6]),
 			},
 		}
 		txDealCars = append(txDealCars, txDealCar)
