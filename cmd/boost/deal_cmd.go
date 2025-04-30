@@ -35,6 +35,11 @@ import (
 const DealProtocolv120 = "/fil/storage/mk/1.2.0"
 
 var dealFlags = []cli.Flag{
+	&cli.IntFlag{
+		Name:  "port",
+		Usage: "port",
+		Value: 0,
+	},
 	&cli.StringFlag{
 		Name:     "provider",
 		Usage:    "storage provider on-chain address",
@@ -141,6 +146,11 @@ var offlineBatchDealCmd = &cli.Command{
 	Name:  "offline-batch-deal",
 	Usage: "Make an offline batch deal with Boost",
 	Flags: []cli.Flag{
+		&cli.IntFlag{
+			Name:  "port",
+			Usage: "port",
+			Value: 0,
+		},
 		&cli.StringFlag{
 			Name:     "tx-dc-client",
 			Usage:    "TxDcClient",
@@ -189,7 +199,8 @@ var offlineBatchDealCmd = &cli.Command{
 func dealCmdAction(cctx *cli.Context, isOnline bool) error {
 	ctx := bcli.ReqContext(cctx)
 
-	n, err := clinode.Setup(cctx.String(cmd.FlagRepo.Name))
+	port := cctx.Int("port")
+	n, err := clinode.SetupWithPort(cctx.String(cmd.FlagRepo.Name), port)
 	if err != nil {
 		return err
 	}
@@ -437,7 +448,8 @@ func batchOfflineDealCmdAction(cctx *cli.Context) error {
 		return err
 	}
 
-	n, err := clinode.Setup(cctx.String(cmd.FlagRepo.Name))
+	port := cctx.Int("port")
+	n, err := clinode.SetupWithPort(cctx.String(cmd.FlagRepo.Name), port)
 	if err != nil {
 		return err
 	}

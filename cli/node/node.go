@@ -26,6 +26,11 @@ type Node struct {
 }
 
 func Setup(cfgdir string) (*Node, error) {
+	return SetupWithPort(cfgdir, 0)
+}
+
+// addr
+func SetupWithPort(cfgdir string, port int) (*Node, error) {
 	cfgdir, err := homedir.Expand(cfgdir)
 	if err != nil {
 		return nil, fmt.Errorf("getting homedir: %w", err)
@@ -41,8 +46,9 @@ func Setup(cfgdir string) (*Node, error) {
 		return nil, err
 	}
 
+	addStr := fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", port)
 	h, err := libp2p.New(
-		libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/0"),
+		libp2p.ListenAddrStrings(addStr),
 		libp2p.Identity(peerkey),
 	)
 	if err != nil {
