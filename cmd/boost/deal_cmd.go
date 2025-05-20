@@ -526,26 +526,6 @@ func batchOfflineDealCmdAction(cctx *cli.Context) error {
 		providerCollateral = big.Div(big.Mul(bounds.Min, big.NewInt(6)), big.NewInt(5)) // add 20%
 	}
 
-	err = retry.Do(
-		func() error {
-			return n.Host.Connect(ctx, *addrInfo)
-
-		},
-		retry.Attempts(20),
-		retry.Delay(time.Second*30),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to retry connect to peer %s: %w", addrInfo.ID, err)
-	}
-	x, err := n.Host.Peerstore().FirstSupportedProtocol(addrInfo.ID, DealProtocolv120)
-	if err != nil {
-		return fmt.Errorf("getting protocols for peer %s: %w", addrInfo.ID, err)
-	}
-
-	if len(x) == 0 {
-		return fmt.Errorf("boost client cannot make a deal with storage provider %s because it does not support protocol version 1.2.0", maddr)
-	}
-
 	dealCount := txDcClientHandler.Count()
 	for i := 0; i < dealCount; i++ {
 		dealUuid := uuid.New()
@@ -558,64 +538,62 @@ func batchOfflineDealCmdAction(cctx *cli.Context) error {
 		}
 		rootCid := txDealCar.RootCid
 
-		transfer := types.Transfer{}
-
-		// Create a deal proposal to storage provider using deal protocol v1.2.0 format
-		dealProposal, err := dealProposal(ctx, n, walletAddr, rootCid, abi.PaddedPieceSize(pieceSize), pieceCid, maddr, startEpoch, duration, true, providerCollateral, abi.NewTokenAmount(1))
-		if err != nil {
-			return fmt.Errorf("failed to create a deal proposal: %w", err)
-		}
-
-		dealParams := types.DealParams{
-			DealUUID:           dealUuid,
-			ClientDealProposal: *dealProposal,
-			DealDataRoot:       rootCid,
-			IsOffline:          true,
-			Transfer:           transfer,
-			RemoveUnsealedCopy: false,
-			SkipIPNIAnnounce:   false,
-		}
-
-		log.Debugw("about to submit deal proposal", "uuid", dealUuid.String())
-
 		var resp types.DealResponse
-
-		needReconnect := false
+		var dp *market.ClientDealProposal
 		err = retry.Do(
 			func() error {
-				if needReconnect {
-					err := n.Host.Connect(ctx, *addrInfo)
-					if err != nil {
-						needReconnect = true
-						return fmt.Errorf("1 failed to retry connect to peer %s: %w", addrInfo.ID, err)
-					}
-					x, err := n.Host.Peerstore().FirstSupportedProtocol(addrInfo.ID, DealProtocolv120)
-					if err != nil {
-						needReconnect = true
-						return fmt.Errorf("1 getting protocols for peer %s: %w", addrInfo.ID, err)
-					}
+				var err error
+				err = n.Host.Connect(ctx, *addrInfo)
 
-					if len(x) == 0 {
-						needReconnect = true
-						return fmt.Errorf("1 boost client cannot make a deal with storage provider %s because it does not support protocol version 1.2.0", maddr)
+				if err != nil {
+					return fmt.Errorf("failed to retry connect to peer %s: %w", addrInfo.ID, err)
+				}
+				x, err := n.Host.Peerstore().FirstSupportedProtocol(addrInfo.ID, DealProtocolv120)
+				if err != nil {
+					return fmt.Errorf("getting protocols for peer %s: %w", addrInfo.ID, err)
+				}
+
+				if len(x) == 0 {
+					return fmt.Errorf("boost client cannot make a deal with storage provider %s because it does not support protocol version 1.2.0", maddr)
+				}
+
+				// Create a deal proposal to storage provider using deal protocol v1.2.0 format
+				dp, err = dealProposal(ctx, n, walletAddr, rootCid, abi.PaddedPieceSize(pieceSize), pieceCid, maddr, startEpoch, duration, true, providerCollateral, abi.NewTokenAmount(1))
+				if err != nil {
+					return fmt.Errorf("failed to create a deal proposal: %w", err)
+				}
+				transfer := types.Transfer{}
+				dealParams := types.DealParams{
+					DealUUID:           dealUuid,
+					ClientDealProposal: *dp,
+					DealDataRoot:       rootCid,
+					IsOffline:          true,
+					Transfer:           transfer,
+					RemoveUnsealedCopy: false,
+					SkipIPNIAnnounce:   false,
+				}
+
+				err = func() error {
+					log.Debugw("about to submit deal proposal", "uuid", dealUuid.String())
+
+					s, err := n.Host.NewStream(ctx, addrInfo.ID, DealProtocolv120)
+					if err != nil {
+						return fmt.Errorf("failed to open stream to peer %s: %w", addrInfo.ID, err)
 					}
-				}
-				s, err := n.Host.NewStream(ctx, addrInfo.ID, DealProtocolv120)
-				if err != nil {
-					needReconnect = true
-					return fmt.Errorf("failed to open stream to peer %s: %w", addrInfo.ID, err)
-				}
-				defer s.Close()
-				err = doRpc(ctx, s, &dealParams, &resp)
-				if err != nil {
-					needReconnect = true
-					return fmt.Errorf("failed to doRpc to peer %s: %w", addrInfo.ID, err)
-				}
-				return nil
+					defer s.Close()
+					err = doRpc(ctx, s, &dealParams, &resp)
+					if err != nil {
+						return fmt.Errorf("failed to doRpc to peer %s: %w", addrInfo.ID, err)
+					}
+					return nil
+				}()
+
+				return err
 			},
-			retry.Attempts(10),
+			retry.Attempts(20),
 			retry.Delay(time.Second*30),
 		)
+
 		if err != nil {
 			return fmt.Errorf("send proposal rpc: %w", err)
 		}
@@ -624,7 +602,7 @@ func batchOfflineDealCmdAction(cctx *cli.Context) error {
 			return fmt.Errorf("deal proposal rejected: %s", resp.Message)
 		}
 
-		msgToFile := txDcClientHandler.OutputLine(i, dealUuid, maddr, rootCid, dealProposal)
+		msgToFile := txDcClientHandler.OutputLine(i, dealUuid, maddr, rootCid, dp)
 		_, err = fOut.WriteString(msgToFile)
 		if err != nil {
 			return fmt.Errorf("write output file: %w", err)
@@ -632,7 +610,7 @@ func batchOfflineDealCmdAction(cctx *cli.Context) error {
 
 		msg := fmt.Sprintf("%d/%d\t%s\t%s\t%s\t%s\t%d\t%d\n",
 			i+1, dealCount,
-			dealUuid, maddr, rootCid, dealProposal.Proposal.PieceCID, dealProposal.Proposal.StartEpoch, dealProposal.Proposal.EndEpoch)
+			dealUuid, maddr, rootCid, dp.Proposal.PieceCID, dp.Proposal.StartEpoch, dp.Proposal.EndEpoch)
 		fmt.Print(msg)
 	}
 
