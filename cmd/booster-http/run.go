@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/filecoin-project/boost/cmd/lib/txdc"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
@@ -173,6 +174,12 @@ var runCmd = &cli.Command{
 			Name:  "no-metrics",
 			Usage: "stops emitting information about the node as metrics (param is used by tests)",
 		},
+		&cli.StringFlag{
+			Name:    "txdc-base-url",
+			Usage:   "txdc-base-url. eg 'http://localhost:8042'",
+			EnvVars: []string{"TXDC_BASE_URL"},
+			Value:   "",
+		},
 	},
 	Action: func(cctx *cli.Context) error {
 		servePieces := cctx.Bool("serve-pieces")
@@ -288,7 +295,8 @@ var runCmd = &cli.Command{
 				GetSizeFailResponseCount:    metrics.HttpRblsGetSizeFailResponseCount,
 				GetSizeSuccessResponseCount: metrics.HttpRblsGetSizeSuccessResponseCount,
 			}
-			rbs := remoteblockstore.NewRemoteBlockstore(pd, &httpBlockMetrics)
+			txbs := txdc.NewTxRemoteBlockstore(pd, cctx.String("txdc-base-url"))
+			rbs := remoteblockstore.NewRemoteBlockstore(txbs, &httpBlockMetrics)
 			filtered := filters.NewFilteredBlockstore(rbs, multiFilter)
 			opts.Blockstore = filtered
 		}
