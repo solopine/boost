@@ -190,7 +190,7 @@ func (s *HttpServer) unsealedDeal(ctx context.Context, pieceCid cid.Cid, pieceDe
 		if di.IsDirectDeal {
 			dealSectors = append(dealSectors, fmt.Sprintf("Allocation %d: Sector %d", di.ChainDealID, di.SectorID))
 		} else {
-			dealSectors = append(dealSectors, fmt.Sprintf("Deal %d: Sector %d", di.ChainDealID, di.SectorID))
+			dealSectors = append(dealSectors, fmt.Sprintf("Deal %d: Sector %d, MinerAddr:%s", di.ChainDealID, di.SectorID, di.MinerAddr.String()))
 		}
 	}
 
