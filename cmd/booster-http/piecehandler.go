@@ -176,6 +176,7 @@ func (s *HttpServer) unsealedDeal(ctx context.Context, pieceCid cid.Cid, pieceDe
 			allErr = multierror.Append(allErr, err)
 			continue
 		}
+		log.Infow("---IsUnsealed without err", "di.ChainDealID", di.ChainDealID, "di.SectorID", di.SectorID, "di.MinerAddr", "di.MinerAddr", "isUnsealed", isUnsealed)
 		if isUnsealed {
 			// Found a deal with an unsealed piece, so return the deal info
 			return &di, nil
