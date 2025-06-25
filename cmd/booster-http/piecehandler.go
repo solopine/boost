@@ -177,6 +177,7 @@ func (s *HttpServer) unsealedDeal(ctx context.Context, pieceCid cid.Cid, pieceDe
 			continue
 		}
 		log.Infow("---IsUnsealed without err", "di.ChainDealID", di.ChainDealID, "di.SectorID", di.SectorID, "di.MinerAddr", "di.MinerAddr", "isUnsealed", isUnsealed)
+		return &di, nil
 		if isUnsealed {
 			// Found a deal with an unsealed piece, so return the deal info
 			return &di, nil
