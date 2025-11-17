@@ -614,6 +614,8 @@ func createExtendClaimMsgForTxdc(ctx context.Context, api api.Gateway, claims []
 				TermMax:  tmax,
 				Provider: claim.ProviderId,
 			})
+		} else {
+			log.Warnw("claim not eligible", "tmax", tmax, "claim.TermMax", claim.TermMax, "claim.TermStart", claim.TermStart, "head.Height()", head.Height())
 		}
 	}
 
