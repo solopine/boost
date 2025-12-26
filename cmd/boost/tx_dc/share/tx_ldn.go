@@ -26,6 +26,9 @@ const (
 	L16
 	L17
 	L18
+	L19
+	L20
+	L21
 )
 
 var (
@@ -48,6 +51,9 @@ var (
 		L16: "f1pxfsz24cyrvohytewt5cj5slpias7jxvgo42gsq",
 		L17: "f1mokx5ogircmhlbijlthsl2rzb4rhflkvzo77yuy",
 		L18: "f1lurvvlzrl6ljo64jb7wpojbykjmsw4ln6cdvmfq",
+		L19: "f1mcfo3j4ickd3ybxx2aslyjfvwxipi5gow3w7ynq",
+		L20: "f1tkqbvi6prs6hxolcrqbyr2yytl6vrejy3feeomi",
+		L21: "f1zzxiixpqv37wrff7igjv2olvethald3tv43ab7a",
 	}
 	TxVersionLdnMap = map[txcar.Version]TxLdn{
 		txcar.V1001: L1,
@@ -74,6 +80,9 @@ var (
 		txcar.Version(2016): L16,
 		txcar.Version(2017): L17,
 		txcar.Version(2018): L18,
+		txcar.Version(2019): L19,
+		txcar.Version(2020): L20,
+		txcar.Version(2021): L21,
 	}
 )
 
